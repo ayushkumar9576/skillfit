@@ -29,7 +29,7 @@ def list_tables() -> None:
         print(f"  - {table}")
 
     expected = {
-        "faculty", "students", "student_projects", "student_skills",
+        "users", "faculty", "students", "student_projects", "student_skills",
         "certifications", "drives", "recommendations",
     }
     missing = expected - set(tables)
