@@ -13,17 +13,45 @@ import enum
 
 
 class UserRole(str, enum.Enum):
-    """
-    Roles available in the SkillFit platform.
-
-    Inherits from str so that SQLAlchemy's Enum column and Pydantic's
-    JSON serialization both receive a plain string value (e.g. "student")
-    rather than the enum member object.
-
-    Phase 2 implements: student, faculty.
-    admin is defined in the enum but not implemented in Phase 2.
-    """
-
+    """Roles available in the SkillFit platform."""
     student = "student"
     faculty = "faculty"
     admin = "admin"
+
+class AnalysisStatus(str, enum.Enum):
+    pending = "pending"
+    processing = "processing"
+    completed = "completed"
+    failed = "failed"
+
+class ConfidenceLevel(str, enum.Enum):
+    low = "low"
+    medium = "medium"
+    high = "high"
+
+class ReadinessLevel(str, enum.Enum):
+    placement_ready = "placement_ready"
+    moderately_ready = "moderately_ready"
+    needs_improvement = "needs_improvement"
+
+class ComplexityLabel(str, enum.Enum):
+    beginner = "beginner"
+    intermediate = "intermediate"
+    advanced = "advanced"
+    expert = "expert"
+
+class TechnicalDepthLabel(str, enum.Enum):
+    basic = "basic"
+    intermediate = "intermediate"
+    advanced = "advanced"
+    expert = "expert"
+
+class ExperienceStrengthLabel(str, enum.Enum):
+    weak = "weak"
+    moderate = "moderate"
+    strong = "strong"
+
+class RecordSource(str, enum.Enum):
+    resume = "resume"
+    manual = "manual"
+    imported = "imported"

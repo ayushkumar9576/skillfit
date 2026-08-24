@@ -23,6 +23,8 @@ class Drive(Base):
     application_deadline: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    # Fix #9: Add updated_at for consistency with all other models
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now(), nullable=False)
 
     recommendations: Mapped[List["Recommendation"]] = relationship(
         "Recommendation", back_populates="drive", cascade="all, delete-orphan"

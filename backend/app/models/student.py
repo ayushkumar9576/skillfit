@@ -25,7 +25,7 @@ class Student(Base):
     branch: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     cgpa: Mapped[Optional[float]] = mapped_column(Numeric(4, 2), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
-    resume_path: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    # Fix #2: Removed legacy resume_path (String) — resume storage is handled by ResumeFile model
     placement_status: Mapped[str] = mapped_column(
         String(50), nullable=False, server_default="Not Placed"
     )
@@ -52,6 +52,15 @@ class Student(Base):
     )
     recommendations: Mapped[List["Recommendation"]] = relationship(
         "Recommendation", back_populates="student", cascade="all, delete-orphan"
+    )
+    internships: Mapped[List["StudentInternship"]] = relationship(
+        "StudentInternship", back_populates="student", cascade="all, delete-orphan"
+    )
+    resume_files: Mapped[List["ResumeFile"]] = relationship(
+        "ResumeFile", back_populates="student", cascade="all, delete-orphan"
+    )
+    cv_analyses: Mapped[List["CVAnalysis"]] = relationship(
+        "CVAnalysis", back_populates="student", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

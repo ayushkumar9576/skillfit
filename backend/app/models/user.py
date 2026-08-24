@@ -1,7 +1,8 @@
-import enum
 import uuid
 from datetime import datetime
 from typing import Optional
+
+from app.core.enums import UserRole
 
 from sqlalchemy import Boolean, DateTime, Enum as SAEnum, String, func
 from sqlalchemy.dialects.postgresql import UUID
@@ -10,17 +11,17 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.database import Base
 
 
-class UserRole(str, enum.Enum):
-    student = "student"
-    faculty = "faculty"
-    admin = "admin"
-
 
 class User(Base):
     """
     Single source of truth for identity and authentication.
-    Stores: full_name, email, credentials, role, account status.
+    Stores: full_name, email, registration_number, credentials, role, account status.
     Does NOT store: academic data, faculty details, placement information.
+
+    registration_number is the primary business identifier used across all
+    university workflows (placement, analytics, dashboards, reporting).
+    It is stored here — on the auth entity — so login and identity resolution
+    require no joins to Student or Faculty tables.
     """
     __tablename__ = "users"
 
@@ -30,6 +31,9 @@ class User(Base):
 
     full_name: Mapped[str] = mapped_column(String(150), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False, index=True)
+    registration_number: Mapped[str] = mapped_column(
+        String(50), unique=True, nullable=False, index=True
+    )
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
 
     role: Mapped[UserRole] = mapped_column(

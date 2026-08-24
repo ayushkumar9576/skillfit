@@ -18,3 +18,16 @@ alembic
 
 # Rate limiting
 slowapi
+
+# Multipart form data — required by FastAPI for file upload endpoints (Phase 3.2)
+python-multipart
+
+# Phase 3.2.1 – File Security Hardening
+# MIME type detection via libmagic (Windows binary included)
+python-magic-bin
+
+# PDF parsing — validates PDF integrity at upload; reused in Phase 3.3 text extraction
+pdfplumber
+
+# DOCX parsing — validates DOCX integrity at upload; reused in Phase 3.3 text extraction
+python-docx

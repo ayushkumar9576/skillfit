@@ -1,10 +1,12 @@
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import ForeignKey, Integer, String, Text, func
+from sqlalchemy import ForeignKey, Integer, String, Enum as SQLAlchemyEnum, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
+from app.core.enums import ConfidenceLevel, RecordSource
 
 
 class StudentSkill(Base):
@@ -18,10 +20,15 @@ class StudentSkill(Base):
     )
 
     skill_name: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
+
     confidence_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    confidence_level: Mapped[Optional[ConfidenceLevel]] = mapped_column(SQLAlchemyEnum(ConfidenceLevel), nullable=True)
+    evidence_sources: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+
+    source: Mapped[RecordSource] = mapped_column(SQLAlchemyEnum(RecordSource), nullable=False, default=RecordSource.manual)
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now(), nullable=False)
 
     student: Mapped["Student"] = relationship("Student", back_populates="skills")
 
