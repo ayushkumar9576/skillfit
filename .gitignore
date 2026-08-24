@@ -1,14 +1,79 @@
+# ---------------------------------------------------------------------------
+# Dependencies & Virtual Environments
+# ---------------------------------------------------------------------------
 node_modules/
 .venv/
 venv/
-virtual
+virtual/
+.pnp
+.pnp.*
+.yarn/*
+
+# ---------------------------------------------------------------------------
+# Environment Variables & Secrets (CRITICAL: Never commit credentials)
+# ---------------------------------------------------------------------------
+.env
+.env.*
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+*.env
+*.pem
+*.key
+*.crt
+*.pfx
+*.p12
+
+# Allow tracking example environment templates
+!.env.example
+!backend/.env.example
+
+# ---------------------------------------------------------------------------
+# Python & Bytecode
+# ---------------------------------------------------------------------------
 __pycache__/
-.env
-.next/
-dist/
+*.py[cod]
+*$py.class
+*.so
+.Python
 build/
-*.pyc
-# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
-.env
-internal_docs
-uploads
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# ---------------------------------------------------------------------------
+# Uploads, Storage & Internal Data
+# ---------------------------------------------------------------------------
+uploads/
+uploads/**
+internal_docs/
+
+# ---------------------------------------------------------------------------
+# Frontend Build Artifacts (Next.js)
+# ---------------------------------------------------------------------------
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# ---------------------------------------------------------------------------
+# IDE & System Files
+# ---------------------------------------------------------------------------
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+.vscode/
+.idea/
