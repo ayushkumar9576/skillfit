@@ -4,6 +4,7 @@ load_dotenv()  # Must run before any module that reads os.getenv (security.py, d
 import app.db.base  # noqa: F401 — registers all ORM models with SQLAlchemy metadata
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 from slowapi import _rate_limit_exceeded_handler
 
@@ -16,6 +17,18 @@ app = FastAPI(
     title="SkillFit API",
     version="3.3.0",
     description="AI-powered student placement intelligence platform.",
+)
+
+# ---------------------------------------------------------------------------
+# CORS — Allow the Next.js frontend (localhost:3000) to call this API.
+# In production, replace the origin with the deployed frontend domain.
+# ---------------------------------------------------------------------------
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.state.limiter = limiter

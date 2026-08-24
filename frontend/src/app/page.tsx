@@ -1,14 +1,26 @@
-export default function Home() {
+/**
+ * app/page.tsx
+ * ------------
+ * SkillFit Landing Page (/)
+ * Composes all landing sections.
+ */
+
+import Navbar from "@/components/layout/Navbar";
+import HeroSection from "@/components/landing/HeroSection";
+import FeaturesSection from "@/components/landing/FeaturesSection";
+import WorkflowSection from "@/components/landing/WorkflowSection";
+import Footer from "@/components/landing/Footer";
+
+export default function HomePage() {
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center p-24 bg-gray-50 text-gray-900">
-      <div className="text-center">
-        <h1 className="text-6xl font-extrabold mb-4 text-blue-600 tracking-tight">
-          SkillFit
-        </h1>
-        <p className="text-2xl font-medium text-gray-700">
-          AI-Powered Student Placement Intelligence Platform
-        </p>
-      </div>
-    </main>
+    <div className="flex min-h-screen flex-col">
+      <Navbar />
+      <main className="flex-1">
+        <HeroSection />
+        <FeaturesSection />
+        <WorkflowSection />
+      </main>
+      <Footer />
+    </div>
   );
 }
