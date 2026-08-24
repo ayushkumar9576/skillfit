@@ -32,8 +32,8 @@ from app.db.database import SessionLocal
 from app.models.user import User
 
 # FastAPI's OAuth2PasswordBearer reads the Authorization: Bearer <token> header.
-# tokenUrl is the login endpoint — used by the OpenAPI /docs UI only.
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
+# tokenUrl is the OAuth2 token endpoint — used by the OpenAPI /docs UI for the Authorize dialog.
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/token")
 
 
 

@@ -19,6 +19,7 @@ Design:
 """
 
 from fastapi import APIRouter, Depends, status, Request
+from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
@@ -80,9 +81,9 @@ def register_faculty(
     "/login",
     response_model=TokenSchema,
     status_code=status.HTTP_200_OK,
-    summary="Login and receive a JWT access token",
+    summary="Login and receive a JWT access token (JSON)",
     description=(
-        "Authenticates the user by email and password. "
+        "Authenticates the user by registration_number and password via JSON payload. "
         "Returns a signed JWT Bearer token valid for 15 minutes."
     ),
 )
@@ -93,6 +94,29 @@ def login(
     db: Session = Depends(get_db),
 ) -> TokenSchema:
     return auth_service.login_user(db, data)
+
+
+@router.post(
+    "/token",
+    response_model=TokenSchema,
+    status_code=status.HTTP_200_OK,
+    summary="OAuth2 Password token endpoint (Swagger UI & OAuth2 clients)",
+    description=(
+        "Authenticates via OAuth2 password flow form-data (username=registration_number or email, password). "
+        "Used natively by Swagger UI's Authorize dialog."
+    ),
+)
+@limiter.limit("5/15minute")
+def login_token(
+    request: Request,
+    form_data: OAuth2PasswordRequestForm = Depends(),
+    db: Session = Depends(get_db),
+) -> TokenSchema:
+    return auth_service.login_oauth2(
+        db=db,
+        username=form_data.username,
+        password=form_data.password,
+    )
 
 
 

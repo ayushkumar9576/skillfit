@@ -9,11 +9,12 @@ from slowapi import _rate_limit_exceeded_handler
 
 from app.api.auth import router as auth_router
 from app.api.resume import router as resume_router
+from app.api.extraction import router as extraction_router
 from app.core.rate_limit import limiter
 
 app = FastAPI(
     title="SkillFit API",
-    version="3.0.0",
+    version="3.3.0",
     description="AI-powered student placement intelligence platform.",
 )
 
@@ -22,6 +23,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.include_router(auth_router)
 app.include_router(resume_router)
+app.include_router(extraction_router)
 
 
 @app.get("/health", tags=["Health"])

@@ -266,3 +266,45 @@ def login_user(db: Session, data: LoginSchema) -> TokenSchema:
     )
 
     return TokenSchema(access_token=token)
+
+
+def login_oauth2(db: Session, username: str, password: str) -> TokenSchema:
+    """
+    Authenticate an OAuth2 password grant request (used by Swagger UI & OAuth2 clients).
+
+    Matches 'username' against registration_number or email for maximum convenience.
+    Updates last_login_at on success and returns a TokenSchema with JWT.
+    """
+    _INVALID_CREDENTIALS = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    user: User | None = db.query(User).filter(
+        (User.registration_number == username) | (User.email == username)
+    ).first()
+
+    if not user:
+        raise _INVALID_CREDENTIALS
+
+    if not verify_password(password, user.password_hash):
+        raise _INVALID_CREDENTIALS
+
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account has been deactivated.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # Update last login timestamp
+    user.last_login_at = datetime.now(timezone.utc)
+    db.commit()
+
+    token = create_access_token(
+        subject=str(user.id),
+        role=user.role.value,
+    )
+
+    return TokenSchema(access_token=token)
