@@ -231,10 +231,56 @@ def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
         return True
 
 
-def _stage_internship_analysis(_db: Session, _resume: ResumeFile) -> bool:
-    """[Phase 3.8 placeholder] Internship Analysis Engine — not yet implemented."""
-    logger.debug("Pipeline Stage 4 (internship analysis) — placeholder, skipping.")
-    return True
+def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
+    """
+    Stage 4 — Internship Analysis Engine (Phase 3.8).
+    
+    Like project analysis, this is best-effort and non-fatal.
+    """
+    if not resume.extracted_text:
+        logger.warning(
+            "Pipeline Stage 4 (internship analysis) skipped — no extracted text: resume_id=%s",
+            resume.id,
+        )
+        return True
+
+    from app.analysis.engines.internship_analysis_engine import InternshipAnalysisEngine
+    from app.services.resume.internship_extractor import get_internship_extractor
+    from app.services.llm.exceptions import LLMConfigurationError
+
+    try:
+        extractor = get_internship_extractor("rule_based")
+        extraction_result = extractor.extract(resume.extracted_text)
+        
+        engine = InternshipAnalysisEngine()
+        result = engine.analyze(
+            resume_id=str(resume.id), internships=extraction_result.internships
+        )
+        logger.info(
+            "Pipeline Stage 4 (internship analysis) completed: resume_id=%s "
+            "internships_extracted=%d reports_generated=%d",
+            resume.id,
+            result.total_internships_count,
+            len(result.reports),
+        )
+        return True
+    except LLMConfigurationError as exc:
+        logger.warning(
+            "Pipeline Stage 4 (internship analysis) skipped — LLM not configured "
+            "(resume_id=%s): %s: %s",
+            resume.id,
+            type(exc).__name__,
+            exc,
+        )
+        return True
+    except Exception as exc:
+        logger.error(
+            "Pipeline Stage 4 (internship analysis) error (non-fatal): resume_id=%s %s: %s",
+            resume.id,
+            type(exc).__name__,
+            exc,
+        )
+        return True
 
 
 def _stage_certification_analysis(_db: Session, _resume: ResumeFile) -> bool:
