@@ -95,19 +95,35 @@ class GeminiProvider(BaseLLMProvider):
         api_key: Optional[str] = None,
     ) -> None:
         self._settings = settings or LLMSettings.from_env()
+        self._api_key = api_key
+        self._client = client
+        self._clients_by_loop = {}
 
-        if client is not None:
-            self._client = client
-            return
+    def _get_client(self) -> genai.Client:
+        """Lazily instantiate the client and ensure it binds to the current active event loop."""
+        if self._client is not None:
+            return self._client
+            
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+            
+        if loop is not None and loop in self._clients_by_loop:
+            return self._clients_by_loop[loop]
 
-        key = api_key or os.getenv("GEMINI_API_KEY")
+        key = self._api_key or os.getenv("GEMINI_API_KEY")
         if not key:
             raise LLMConfigurationError(
                 "GEMINI_API_KEY is not set. Add it to backend/.env "
                 "(see backend/.env.example)."
             )
 
-        self._client = genai.Client(api_key=key, http_options={"timeout": self._settings.timeout * 1000})
+        client = genai.Client(api_key=key, http_options={"timeout": self._settings.timeout * 1000})
+        if loop is not None:
+            self._clients_by_loop[loop] = client
+        return client
 
     async def complete_structured(
         self,
@@ -138,7 +154,8 @@ class GeminiProvider(BaseLLMProvider):
         ]
 
         try:
-            response = await self._client.aio.models.generate_content(
+            client = self._get_client()
+            response = await client.aio.models.generate_content(
                 model=use_model,
                 contents=contents,
                 config=types.GenerateContentConfig(**config_kwargs),

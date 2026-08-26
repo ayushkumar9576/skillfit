@@ -30,7 +30,7 @@ logger = logging.getLogger(__name__)
 
 SECTION_SOURCE: str = "internships"
 
-_BULLET_CHARS = r"•‣◦▪◾▸▶➤✔∙·⁃\*\-–—\+>"
+_BULLET_CHARS = r"•‣◦▪◾▸▶➤✔∙·⁃\*\-–—\+>\ufffd"
 _BULLET_PATTERN = re.compile(rf"^[{_BULLET_CHARS}]+\s+")
 _NUMBERING_PATTERN = re.compile(r"^\(?\d{1,2}[\.\)\:]\s+")
 

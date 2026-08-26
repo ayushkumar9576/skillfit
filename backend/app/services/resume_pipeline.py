@@ -44,7 +44,7 @@ Security:
 import logging
 import uuid
 from datetime import datetime, timezone
-
+from app.services.resume.project_extractor import get_project_extractor
 from sqlalchemy.orm import Session
 
 from app.core.enums import ProcessingStatus
@@ -52,6 +52,10 @@ from app.db.database import SessionLocal
 from app.models.resume_file import ResumeFile
 from app.services import extraction_service
 from app.services.resume.section_service import detect_sections_from_text
+
+import json
+from pathlib import Path
+from dataclasses import asdict
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +172,8 @@ def _stage_detect_sections(db: Session, resume: ResumeFile) -> bool:
 # Stages 4–9 remain placeholders (filled in during Phases 3.8–3.11, 3.6, 3.12).
 # ---------------------------------------------------------------------------
 
+debug_dir = Path("debug_reports")
+debug_dir.mkdir(exist_ok=True)
 
 def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
     """
@@ -200,17 +206,37 @@ def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
     from app.services.llm.exceptions import LLMConfigurationError
 
     try:
+        extractor = get_project_extractor("rule_based")
+        extraction = extractor.extract(resume.extracted_text)
+
+        print("\n===== PROJECT EXTRACTION =====")
+        print(f"Projects found: {len(extraction.projects)}")
+
+        for i, p in enumerate(extraction.projects):
+            print(f"Project {i+1}: {p.title}")
+
+        print("==============================\n")
+
         engine = ProjectAnalysisEngine()
         result = engine.analyze(
             resume_id=str(resume.id), raw_text=resume.extracted_text
         )
-        logger.info(
-            "Pipeline Stage 3 (project analysis) completed: resume_id=%s "
-            "projects_extracted=%d reports_generated=%d",
-            resume.id,
-            result.total_projects_count,
-            len(result.reports),
-        )
+        with open("debug_project.json", "w", encoding="utf-8") as f:
+            json.dump(
+                asdict(result),
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+        
+        print("\n===== PROJECT ANALYSIS RESULT =====")
+        print(f"Total Projects: {result.total_projects_count}")
+        print(f"Reports Generated: {len(result.reports)}")
+
+        for i, report in enumerate(result.reports):
+            print(f"Report {i+1}")
+
+        print("===================================\n")
         return True
     except LLMConfigurationError as exc:
         logger.warning(
@@ -251,18 +277,38 @@ def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
     try:
         extractor = get_internship_extractor("rule_based")
         extraction_result = extractor.extract(resume.extracted_text)
+
+        print("\n===== INTERNSHIP EXTRACTION =====")
+        print(f"Internships found: {len(extraction_result.internships)}")
+
+        for i, internship in enumerate(extraction_result.internships):
+            print(f"Internship {i+1}:")
+            print(f"Role: {internship.role}")
+            print(f"Organization: {internship.organization}")
+
+        print("=================================\n")
         
         engine = InternshipAnalysisEngine()
         result = engine.analyze(
             resume_id=str(resume.id), internships=extraction_result.internships
         )
-        logger.info(
-            "Pipeline Stage 4 (internship analysis) completed: resume_id=%s "
-            "internships_extracted=%d reports_generated=%d",
-            resume.id,
-            result.total_internships_count,
-            len(result.reports),
-        )
+        with open("debug_internship.json", "w", encoding="utf-8") as f:
+            json.dump(
+                asdict(result),
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        print("\n===== INTERNSHIP ANALYSIS RESULT =====")
+        print(f"Total Internships: {result.total_internships_count}")
+        print(f"Reports Generated: {len(result.reports)}")
+
+        for i, report in enumerate(result.reports):
+            print(f"Report {i+1}")
+
+        print("=====================================\n")
+
         return True
     except LLMConfigurationError as exc:
         logger.warning(

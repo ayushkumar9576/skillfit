@@ -48,7 +48,7 @@ SECTION_SOURCE: str = "projects"
 
 # Leading bullet markers (ASCII + common unicode). Requires trailing whitespace
 # so mid-word hyphens ("AI-Powered", "E-Commerce") are never treated as bullets.
-_BULLET_CHARS = r"•‣◦▪◾▸▶➤✔∙·⁃\*\-–—\+>"
+_BULLET_CHARS = r"•‣◦▪◾▸▶➤✔∙·⁃\*\-–—\+>\ufffd"
 _BULLET_PATTERN = re.compile(rf"^[{_BULLET_CHARS}]+\s+")
 
 # Leading list numbering: "1. ", "1) ", "(1) ".
@@ -268,7 +268,7 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
     def _looks_like_title(self, text: str) -> bool:
         """Conservative title-line detector for secondary segmentation."""
         s = text.strip()
-        if not s or len(s) > 90:
+        if not s or len(s) > 150:
             return False
         if self._is_bullet(text) or self._is_label(text):
             return False

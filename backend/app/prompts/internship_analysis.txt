@@ -82,3 +82,28 @@ Every scored object MUST carry a non-empty "ev" array. If you cannot cite a line
 
 Return ONLY a single valid JSON object conforming to the {schema_name} schema. No
 markdown, no code fences, no commentary outside the JSON.
+
+Shape (keys are real; values are placeholders — populate every area):
+{{
+  "understanding": {{"purpose": "...", "domain": "...", "company_type": "...", "team_function": "...", "role_objective": "...", "confidence": 0.0, "ev": [1]}},
+  "technical_depth": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}},
+  "engineering_ownership": {{"classification": "contributor", "score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}},
+  "collaboration_exposure": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}},
+  "impact_analysis": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}},
+  "production_exposure": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}},
+  "software_engineering_practices": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}},
+  "skills_and_tech": [{{"name": "...", "kind": "tech", "depth": 0, "status": "demonstrated", "sophistication": "...", "understanding": "...", "confidence": 0.0, "reasoning": "...", "ev": [4]}}],
+  "competencies": [{{"name": "...", "score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}}],
+  "industry_readiness": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}},
+  "hiring_signal": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}},
+  "internship_quality": "average",
+  "workplace_maturity": {{"classification": "...", "score": 0, "confidence": 0.0, "reasoning": "...", "ev": [1, 4]}},
+  "strengths": [{{"statement": "...", "reasoning": "...", "confidence": 0.0, "ev": [4]}}],
+  "weaknesses": [{{"statement": "...", "reasoning": "...", "confidence": 0.0, "ev": [5]}}],
+  "missing_evidence": [{{"aspect": "testing", "description": "...", "impact": "..."}}],
+  "risks": [{{"statement": "...", "reasoning": "...", "confidence": 0.0, "ev": [5]}}],
+  "executive_assessment": {{"overall_impression": "...", "demonstrates": ["..."], "does_not_demonstrate": ["..."], "strongest_signals": ["..."], "weakest_signals": ["..."], "overall_confidence": 0.0}},
+  "overall_confidence": 0.0,
+  "caveats": ["..."]
+}}
+Lists shown with one element take as many as the evidence supports.
