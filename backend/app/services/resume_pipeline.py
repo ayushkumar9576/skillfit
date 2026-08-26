@@ -172,7 +172,7 @@ def _stage_detect_sections(db: Session, resume: ResumeFile) -> bool:
 # Stages 4–9 remain placeholders (filled in during Phases 3.8–3.11, 3.6, 3.12).
 # ---------------------------------------------------------------------------
 
-debug_dir = Path("backend/app/DEBUG/results")
+debug_dir = Path("DEBUG/results")
 debug_dir.mkdir(parents=True, exist_ok=True)
 
 

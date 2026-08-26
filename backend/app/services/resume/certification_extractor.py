@@ -253,7 +253,7 @@ class RuleBasedCertificationExtractor:
             "link", "credential", "verification", "verify", "validation", "id:", "credential id"
         ]
         provider_keywords = [
-            "coursera", "edureka", "udemy", "linkedin learning", "linkedin", "aws", "google", "microsoft", "oracle", "cisco", "meta"
+            "coursera", "edureka", "udemy", "linkedin learning", "linkedin", "aws", "amazon web services", "google", "microsoft", "oracle", "cisco", "meta"
         ]
         
         # Check if the line is primarily composed of provider or metadata keywords
