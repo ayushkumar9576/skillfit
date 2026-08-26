@@ -147,9 +147,59 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
         if current:
             groups.append(current)
 
-        # We skip the complex title-splitting secondary segmentation for internships to keep it simple,
-        # unless it becomes strictly necessary. Blank lines should separate distinct experiences.
-        return groups
+        refined: List[List[Tuple[int, str]]] = []
+        for group in groups:
+            refined.extend(self._split_by_titles(group))
+        return refined
+
+    def _split_by_titles(self, group: List[Tuple[int, str]]) -> List[List[Tuple[int, str]]]:
+        if not group:
+            return []
+            
+        subs: List[List[Tuple[int, str]]] = []
+        current: List[Tuple[int, str]] = [group[0]]
+        seen_content = False
+        
+        for lineno, text in group[1:]:
+            if self._is_bullet(text) or self._is_label(text):
+                seen_content = True
+                current.append((lineno, text))
+                continue
+            if seen_content and self._looks_like_title(text):
+                subs.append(current)
+                current = [(lineno, text)]
+                seen_content = False
+                continue
+            if text.strip():
+                seen_content = True
+            current.append((lineno, text))
+            
+        subs.append(current)
+        return subs
+
+    def _looks_like_title(self, text: str) -> bool:
+        s = text.strip()
+        if not s or len(s) > 150:
+            return False
+        if self._is_bullet(text) or self._is_label(text):
+            return False
+            
+        core = self._strip_decorations(s)
+        if not core:
+            return False
+            
+        if (s.startswith("**") and s.endswith("**")) or (s.startswith("__") and s.endswith("__")):
+            return True
+        if " | " in s:
+            return True
+        if re.search(r"\s[–—\-]\s", s) and re.search(r"(19|20)\d{2}", s):
+            return True
+            
+        words = re.findall(r"[A-Za-z][A-Za-z0-9+#.&/]*", core)
+        if not words or len(words) > 8:
+            return False
+        capitalized = sum(1 for w in words if w[0].isupper())
+        return (capitalized / len(words)) >= 0.6
 
     @staticmethod
     def _is_bullet(text: str) -> bool:

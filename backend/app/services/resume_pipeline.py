@@ -172,8 +172,9 @@ def _stage_detect_sections(db: Session, resume: ResumeFile) -> bool:
 # Stages 4–9 remain placeholders (filled in during Phases 3.8–3.11, 3.6, 3.12).
 # ---------------------------------------------------------------------------
 
-debug_dir = Path("debug_reports")
-debug_dir.mkdir(exist_ok=True)
+debug_dir = Path("backend/app/DEBUG/results")
+debug_dir.mkdir(parents=True, exist_ok=True)
+
 
 def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
     """
@@ -221,7 +222,7 @@ def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
         result = engine.analyze(
             resume_id=str(resume.id), raw_text=resume.extracted_text
         )
-        with open("debug_project.json", "w", encoding="utf-8") as f:
+        with open(debug_dir / "debug_project.json", "w", encoding="utf-8") as f:
             json.dump(
                 asdict(result),
                 f,
@@ -292,7 +293,7 @@ def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
         result = engine.analyze(
             resume_id=str(resume.id), internships=extraction_result.internships
         )
-        with open("debug_internship.json", "w", encoding="utf-8") as f:
+        with open(debug_dir / "debug_internship.json", "w", encoding="utf-8") as f:
             json.dump(
                 asdict(result),
                 f,
@@ -329,10 +330,75 @@ def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
         return True
 
 
-def _stage_certification_analysis(_db: Session, _resume: ResumeFile) -> bool:
-    """[Phase 3.9 placeholder] Certification Analysis Engine — not yet implemented."""
-    logger.debug("Pipeline Stage 5 (certification analysis) — placeholder, skipping.")
-    return True
+def _stage_certification_analysis(_db: Session, resume: ResumeFile) -> bool:
+    """
+    Stage 5 — Certification Analysis Engine (Phase 3.9).
+    
+    Rule-based extraction of certifications followed by batched LLM analysis.
+    Best-effort / non-fatal.
+    """
+    if not resume.extracted_text:
+        logger.warning(
+            "Pipeline Stage 5 (certification analysis) skipped — no extracted text: resume_id=%s",
+            resume.id,
+        )
+        return True
+
+    from app.analysis.engines.certification_analysis_engine import CertificationAnalysisEngine
+    from app.services.resume.certification_extractor import get_certification_extractor
+    from app.services.llm.exceptions import LLMConfigurationError
+
+    try:
+        extractor = get_certification_extractor()
+        extraction_result = extractor.extract(resume.extracted_text)
+
+        print("\n===== CERTIFICATION EXTRACTION =====")
+        print(f"Certifications found: {len(extraction_result.certifications)}")
+
+        for i, cert in enumerate(extraction_result.certifications):
+            print(f"Cert {i+1}: {cert.certification_name} (Provider: {cert.issuer})")
+
+        print("====================================\n")
+        
+        engine = CertificationAnalysisEngine()
+        result = engine.analyze(
+            resume_id=str(resume.id), certifications=extraction_result.certifications
+        )
+        with open(debug_dir / "debug_certification.json", "w", encoding="utf-8") as f:
+            json.dump(
+                asdict(result),
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+
+        print("\n===== CERTIFICATION ANALYSIS RESULT =====")
+        print(f"Total Certifications: {result.total_certifications_count}")
+        print(f"Reports Generated: {len(result.reports)}")
+
+        for i, report in enumerate(result.reports):
+            print(f"Report {i+1}: {report.certification_name} ({report.provider_tier})")
+
+        print("=========================================\n")
+
+        return True
+    except LLMConfigurationError as exc:
+        logger.warning(
+            "Pipeline Stage 5 (certification analysis) skipped — LLM not configured "
+            "(resume_id=%s): %s: %s",
+            resume.id,
+            type(exc).__name__,
+            exc,
+        )
+        return True
+    except Exception as exc:
+        logger.error(
+            "Pipeline Stage 5 (certification analysis) error (non-fatal): resume_id=%s %s: %s",
+            resume.id,
+            type(exc).__name__,
+            exc,
+        )
+        return True
 
 
 def _stage_skill_analysis(_db: Session, _resume: ResumeFile) -> bool:
