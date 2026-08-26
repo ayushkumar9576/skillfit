@@ -36,7 +36,9 @@ logger = logging.getLogger(__name__)
 
 ALLOWED_EXTENSIONS: frozenset[str] = frozenset({".pdf", ".docx"})
 MAX_FILE_SIZE: int = 10 * 1024 * 1024          # 10 MB
-MAX_RESUMES_PER_STUDENT: int = 5               # Configurable abuse limit
+# Safety guard: 1 generic + 1 specialized. Primary enforcement is via the
+# type-aware replacement logic and the DB unique constraint on (student_id, resume_type).
+MAX_RESUMES_PER_STUDENT: int = 2
 
 # Upload directory: reads from environment variable so Docker / production
 # deployments can override without code changes.

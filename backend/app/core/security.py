@@ -51,6 +51,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 15
 
 _BCRYPT_ROUNDS = 12
 
+MAX_LOGIN_ATTEMPTS = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
+ACCOUNT_LOCK_MINUTES = int(os.getenv("ACCOUNT_LOCK_MINUTES", "15"))
+LOGIN_IP_RATE_LIMIT = os.getenv("LOGIN_IP_RATE_LIMIT", "100/minute")
 
 def hash_password(password: str) -> str:
     """

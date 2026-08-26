@@ -1,11 +1,15 @@
 """
 app/schemas/resume.py
 ---------------------
-Pydantic v2 schemas for SkillFit Phase 3.2 Resume Upload System.
+Pydantic v2 schemas for SkillFit Resume Upload System.
 
 Scope:
     - ResumeResponse: Outbound schema for a single resume record.
     - ResumeListResponse: Outbound schema for a list of resume records.
+
+Phase history:
+    Phase 3.2      — Initial upload response schema.
+    Pre-Phase 3.6  — Added resume_type and processing_status fields.
 
 Design rules (mirrors app/schemas/auth.py conventions):
     - No business logic.
@@ -22,6 +26,8 @@ from typing import List
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.core.enums import ResumeType, ProcessingStatus
+
 
 class ResumeResponse(BaseModel):
     """
@@ -30,10 +36,11 @@ class ResumeResponse(BaseModel):
     Intentionally excludes:
         - file_path  (internal storage path — not a public URL)
         - file_hash  (internal deduplication field)
-        - extracted_text  (Phase 3.3 concern)
+        - extracted_text  (internal pipeline artifact — not a public field)
 
-    file_size is included to allow the frontend to display upload metadata
-    and to support future storage-quota dashboards.
+    Fields added in Pre-Phase 3.6:
+        - resume_type       — 'generic' or 'specialized'
+        - processing_status — pipeline lifecycle state (uploaded/processing/completed/failed)
     """
 
     model_config = ConfigDict(from_attributes=True)
@@ -53,6 +60,20 @@ class ResumeResponse(BaseModel):
     file_size: int = Field(
         ...,
         description="File size in bytes.",
+    )
+    resume_type: ResumeType = Field(
+        ...,
+        description="Category of this resume ('generic' or 'specialized').",
+    )
+    processing_status: ProcessingStatus = Field(
+        ...,
+        description=(
+            "Current automated pipeline status: "
+            "'uploaded' (stored, pipeline not started), "
+            "'processing' (pipeline running), "
+            "'completed' (all stages done), "
+            "'failed' (pipeline error)."
+        ),
     )
     is_active: bool = Field(
         ...,

@@ -15,6 +15,21 @@ from app.analysis.models.skill_models import (
 from app.analysis.models.project_models import (
     ProjectEvidence,
     ProjectAnalysisResult,
+    # Phase 3.7 — Project Intelligence report structures
+    CANNOT_VERIFY,
+    ScoredDimension,
+    ProjectUnderstanding,
+    ArchitectureFacet,
+    ComplexityAssessment,
+    TechnologyUsage,
+    Competency,
+    SkillEvidenceItem,
+    SkillEvidenceMap,
+    TechnicalMaturity,
+    AssessedPoint,
+    MissingEvidenceItem,
+    ExecutiveAssessment,
+    ProjectIntelligenceReport,
 )
 from app.analysis.models.internship_models import (
     InternshipEvidence,
@@ -66,6 +81,21 @@ __all__ = [
     # Project Domain
     "ProjectEvidence",
     "ProjectAnalysisResult",
+    # Project Intelligence (Phase 3.7)
+    "CANNOT_VERIFY",
+    "ScoredDimension",
+    "ProjectUnderstanding",
+    "ArchitectureFacet",
+    "ComplexityAssessment",
+    "TechnologyUsage",
+    "Competency",
+    "SkillEvidenceItem",
+    "SkillEvidenceMap",
+    "TechnicalMaturity",
+    "AssessedPoint",
+    "MissingEvidenceItem",
+    "ExecutiveAssessment",
+    "ProjectIntelligenceReport",
     # Internship Domain
     "InternshipEvidence",
     "InternshipAnalysisResult",

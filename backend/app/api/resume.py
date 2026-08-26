@@ -1,13 +1,19 @@
 """
 app/api/resume.py
 -----------------
-FastAPI route handlers for SkillFit Phase 3.2 – Resume Upload System.
+FastAPI route handlers for SkillFit Resume Upload System.
 
 Endpoints:
-    POST   /resume/upload      — Upload a resume (PDF or DOCX)
+    POST   /resume/upload      — Upload a resume (PDF or DOCX) with type
     GET    /resume             — List all resumes for the authenticated student
     GET    /resume/{resume_id} — Get metadata for a single resume
     DELETE /resume/{resume_id} — Delete a resume (file + DB record)
+
+Phase history:
+    Phase 3.2   — Initial upload, list, get, delete.
+    Pre-3.6     — Upload now accepts resume_type (generic/specialized).
+                  Upload triggers automated pipeline as background task.
+                  Extraction router removed from this module's responsibilities.
 
 Design (mirrors app/api/auth.py conventions):
     - Route handlers are intentionally thin. All business logic lives in
@@ -22,11 +28,11 @@ Design (mirrors app/api/auth.py conventions):
 
 import uuid
 
-from fastapi import APIRouter, Depends, File, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db, require_roles
-from app.core.enums import UserRole
+from app.api.deps import get_db, require_roles
+from app.core.enums import ResumeType, UserRole
 from app.models.user import User
 from app.schemas.resume import ResumeListResponse, ResumeResponse
 from app.services import resume_service
@@ -40,17 +46,32 @@ router = APIRouter(prefix="/resume", tags=["Resume"])
     status_code=status.HTTP_201_CREATED,
     summary="Upload a resume",
     description=(
-        "Upload a PDF or DOCX resume file. "
+        "Upload a PDF or DOCX resume file with a specified type (generic or specialized). "
         "Validates file type, size (max 10 MB), and checks for duplicate uploads. "
+        "If a resume of the same type already exists for this student, it is automatically "
+        "replaced. The upload response is returned immediately; text extraction and "
+        "analysis processing run as a background task. "
         "Only accessible to authenticated student accounts."
     ),
 )
 async def upload_resume(
     file: UploadFile = File(..., description="Resume file (.pdf or .docx, max 10 MB)."),
+    resume_type: ResumeType = Form(
+        ...,
+        description=(
+            "Category of this resume. "
+            "Allowed values: 'generic' (general-purpose) or 'specialized' (role-targeted). "
+            "Each student may have at most one resume per type; uploading a new one "
+            "automatically replaces the existing resume of that type."
+        ),
+    ),
+    background_tasks: BackgroundTasks = BackgroundTasks(),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
 ) -> ResumeResponse:
-    return await resume_service.upload_resume(db, file, current_user.id)
+    return await resume_service.upload_resume(
+        db, file, current_user.id, resume_type, background_tasks
+    )
 
 
 @router.get(
@@ -76,7 +97,7 @@ def list_resumes(
     status_code=status.HTTP_200_OK,
     summary="Get a specific resume",
     description=(
-        "Returns metadata for a single uploaded resume. "
+        "Returns metadata for a single uploaded resume, including current processing_status. "
         "Ownership is strictly enforced — students cannot access another student's resume."
     ),
 )

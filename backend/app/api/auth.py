@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.core.rate_limit import limiter
+from app.core.security import LOGIN_IP_RATE_LIMIT
 from app.models.user import User
 from app.schemas.auth import (
     LoginSchema,
@@ -87,7 +88,7 @@ def register_faculty(
         "Returns a signed JWT Bearer token valid for 15 minutes."
     ),
 )
-@limiter.limit("5/15minute")
+@limiter.limit(LOGIN_IP_RATE_LIMIT)
 def login(
     request: Request,
     data: LoginSchema,
@@ -106,7 +107,7 @@ def login(
         "Used natively by Swagger UI's Authorize dialog."
     ),
 )
-@limiter.limit("5/15minute")
+@limiter.limit(LOGIN_IP_RATE_LIMIT)
 def login_token(
     request: Request,
     form_data: OAuth2PasswordRequestForm = Depends(),

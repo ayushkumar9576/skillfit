@@ -1,10 +1,18 @@
 """
 app/services/resume_service.py
 --------------------------------
-Business logic for SkillFit Phase 3.2 / 3.2.1 – Resume Upload System.
+Business logic for SkillFit Resume Upload System.
+
+Phase history:
+    Phase 3.2   — Upload, list, get, delete.
+    Phase 3.2.1 — Security hardening (5-layer validation, path confinement).
+    Pre-3.6     — Resume type system (generic/specialized), automatic replacement,
+                  pipeline background trigger, processing_status lifecycle.
 
 Handles:
-    - Resume upload (validation, hashing, storage, DB record creation)
+    - Resume upload with type awareness (CHANGE-04)
+    - Automatic replacement of same-type resume (CHANGE-05)
+    - Pipeline background task trigger after upload (CHANGE-09/10/11)
     - Resume listing (student-scoped)
     - Resume retrieval by ID (ownership enforced)
     - Resume deletion (ownership enforced, file + DB record)
@@ -12,14 +20,14 @@ Handles:
 What this module does NOT do:
     - HTTP request/response handling (that belongs in app/api/resume.py)
     - Schema validation (Pydantic handles that before the service is called)
-    - Text extraction or AI analysis (Phase 3.3+)
+    - Text extraction or AI analysis (handled by resume_pipeline.py)
 
 Error conventions (mirrors auth_service.py):
-    - Raises fastapi.HTTPException directly so that route handlers stay thin.
+    - Raises fastapi.HTTPException directly so route handlers stay thin.
     - 400 Bad Request   — invalid file type, size, or empty content
     - 404 Not Found     — resume not found
     - 403 Forbidden     — ownership violation
-    - 409 Conflict      — duplicate upload (same student, same hash)
+    - 409 Conflict      — same hash re-upload attempt (exact duplicate content)
     - 500 via unhandled — unexpected DB/OS errors bubble up naturally
 """
 
@@ -27,10 +35,11 @@ import logging
 import os
 import uuid
 
-from fastapi import HTTPException, UploadFile, status
+from fastapi import BackgroundTasks, HTTPException, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.enums import ProcessingStatus, ResumeType
 from app.core.file_utils import (
     MAX_RESUMES_PER_STUDENT,
     UPLOAD_DIR,
@@ -94,13 +103,63 @@ def _get_owned_resume_or_404(
             detail="Resume not found.",
         )
     if resume.student_id != student_id:
-        # Return 403 rather than 404 to be explicit about the access denial
-        # while still not leaking the owner's identity.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You do not have permission to access this resume.",
         )
     return resume
+
+
+def _replace_existing_resume(db: Session, student_id: int, resume_type: ResumeType) -> None:
+    """
+    Delete any existing active resume of the given type for this student.
+
+    Called before inserting the new resume record. This implements the
+    automatic replacement behavior:
+        - Deletes the physical file from disk (safe — logs if missing).
+        - Deletes the database record.
+        - Does NOT commit — the caller owns the transaction.
+
+    If no existing resume of this type is found, this is a safe no-op.
+
+    Args:
+        db:          Active database session.
+        student_id:  Integer student PK.
+        resume_type: The resume type being replaced (generic or specialized).
+    """
+    existing: ResumeFile | None = (
+        db.query(ResumeFile)
+        .filter(
+            ResumeFile.student_id == student_id,
+            ResumeFile.resume_type == resume_type,
+            ResumeFile.is_active.is_(True),
+        )
+        .first()
+    )
+    if existing is None:
+        return
+
+    logger.info(
+        "Replacing existing %s resume: resume_id=%s student_id=%s",
+        resume_type.value,
+        existing.id,
+        student_id,
+    )
+
+    # Delete physical file first (safe — logs on missing)
+    safe_delete_file(existing.file_path)
+
+    # Delete database record (cascade will also remove linked cv_analysis)
+    db.delete(existing)
+    # Flush so the DELETE reaches the DB before the caller's INSERT.
+    # This is critical to avoid unique constraint violation on (student_id, resume_type)
+    # when the new record is inserted within the same transaction.
+    db.flush()
+    logger.info(
+        "Old %s resume removed from DB: resume_id=%s",
+        resume_type.value,
+        existing.id,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -112,32 +171,39 @@ async def upload_resume(
     db: Session,
     file: UploadFile,
     user_id: uuid.UUID,
+    resume_type: ResumeType,
+    background_tasks: BackgroundTasks,
 ) -> ResumeResponse:
     """
-    Validate, store, and record an uploaded resume file.
+    Validate, store, and record an uploaded resume file, then trigger the
+    automated processing pipeline as a background task.
 
     Flow:
         1.  Verify the user has a student profile.
-        2.  Enforce resume count limit (MAX_RESUMES_PER_STUDENT).
-        3.  Read file bytes (required for all subsequent checks).
+        2.  Enforce resume count safety guard (MAX_RESUMES_PER_STUDENT = 2).
+        3.  Read file bytes (required for all subsequent validation checks).
         4.  Validate extension (Layer 1 — cheapest gate).
         5.  Validate size (Layer 2 — empty / too large).
         6.  Validate file signature / magic bytes (Layer 3).
         7.  Validate MIME type via libmagic (Layer 4).
         8.  Validate file is parseable by the appropriate library (Layer 5).
         9.  Compute SHA-256 hash.
-        10. Application-level duplicate check.
-        11. Generate a UUID-based storage filename.
-        12. Ensure upload directory exists.
-        13. Write file to disk.
-        14. Create ResumeFile ORM record.
-        15. Commit transaction.
-        16. Return ResumeResponse.
+        10. Application-level duplicate content check (same hash = same bytes).
+        11. Delete existing resume of this type if one exists (replacement logic).
+        12. Generate a UUID-based storage filename.
+        13. Ensure upload directory exists.
+        14. Write file to disk.
+        15. Create ResumeFile ORM record with processing_status='uploaded'.
+        16. Commit transaction.
+        17. Add pipeline background task.
+        18. Return ResumeResponse (upload is immediately successful).
 
     Args:
-        db:      SQLAlchemy session.
-        file:    FastAPI UploadFile object from the multipart form.
-        user_id: UUID of the authenticated User (from JWT).
+        db:               SQLAlchemy session.
+        file:             FastAPI UploadFile object from the multipart form.
+        user_id:          UUID of the authenticated User (from JWT).
+        resume_type:      Category of this resume (generic or specialized).
+        background_tasks: FastAPI BackgroundTasks for deferred pipeline execution.
 
     Returns:
         ResumeResponse with the newly created record's metadata.
@@ -145,13 +211,13 @@ async def upload_resume(
     Raises:
         HTTPException 400 — unsupported extension / empty file / file too large.
         HTTPException 403 — user has no student profile.
-        HTTPException 409 — exact same resume already uploaded by this student.
+        HTTPException 409 — exact same resume content already uploaded by this student.
         HTTPException 500 — storage or unexpected DB failure.
     """
     # 1. Verify student profile
     student = _get_student_or_403(db, user_id)
 
-    # 2. Enforce resume count limit (Phase 3.2.1 abuse prevention)
+    # 2. Safety guard: count active resumes (primary enforcement is type-aware replacement)
     active_count = (
         db.query(ResumeFile)
         .filter(
@@ -160,9 +226,21 @@ async def upload_resume(
         )
         .count()
     )
-    if active_count >= MAX_RESUMES_PER_STUDENT:
+    # Only block if we are ALREADY at the limit AND there is no existing resume of this type
+    # to replace (meaning this would create a 3rd resume, which is impossible under the rules).
+    existing_of_type = (
+        db.query(ResumeFile)
+        .filter(
+            ResumeFile.student_id == student.id,
+            ResumeFile.resume_type == resume_type,
+            ResumeFile.is_active.is_(True),
+        )
+        .first()
+    )
+    if active_count >= MAX_RESUMES_PER_STUDENT and existing_of_type is None:
+        # Student already has 2 resumes of different types and is trying to add a 3rd
         logger.warning(
-            "Student %s hit resume upload limit (%d/%d).",
+            "Student %s hit resume upload limit (%d/%d) with no replacement target.",
             student.id,
             active_count,
             MAX_RESUMES_PER_STUDENT,
@@ -171,7 +249,7 @@ async def upload_resume(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=(
                 f"Resume limit reached. You may store a maximum of "
-                f"{MAX_RESUMES_PER_STUDENT} resumes. "
+                f"{MAX_RESUMES_PER_STUDENT} resumes (1 generic + 1 specialized). "
                 "Please delete an existing resume before uploading a new one."
             ),
         )
@@ -253,8 +331,9 @@ async def upload_resume(
     # 9. Compute SHA-256
     file_hash = generate_sha256(file_bytes)
 
-    # 10. Application-level duplicate check
-    existing = (
+    # 10. Application-level duplicate content check
+    # Check for same hash across ALL resume types for this student
+    hash_duplicate = (
         db.query(ResumeFile)
         .filter(
             ResumeFile.student_id == student.id,
@@ -262,9 +341,9 @@ async def upload_resume(
         )
         .first()
     )
-    if existing:
+    if hash_duplicate:
         logger.info(
-            "Student %s attempted to re-upload duplicate resume (hash=%s).",
+            "Student %s attempted to re-upload duplicate resume content (hash=%s).",
             student.id,
             file_hash,
         )
@@ -276,14 +355,17 @@ async def upload_resume(
             ),
         )
 
-    # 11. Generate safe storage filename
+    # 11. Replace existing resume of this type (if one exists)
+    _replace_existing_resume(db, student.id, resume_type)
+
+    # 12. Generate safe storage filename
     storage_filename = generate_storage_filename(extension)
 
-    # 12. Ensure upload directory exists
+    # 13. Ensure upload directory exists
     upload_dir = ensure_upload_directory(UPLOAD_DIR)
     file_path = os.path.join(upload_dir, storage_filename)
 
-    # 13. Write file to disk
+    # 14. Write file to disk
     try:
         with open(file_path, "wb") as f:
             f.write(file_bytes)
@@ -303,20 +385,23 @@ async def upload_resume(
             detail="Failed to store the uploaded file. Please try again.",
         ) from exc
 
-    # 14. Create database record
+    # 15. Create database record
+    resume_id = uuid.uuid4()
     resume = ResumeFile(
-        id=uuid.uuid4(),
+        id=resume_id,
         student_id=student.id,
         file_name=file.filename,
         file_path=file_path,
         file_type=extension,
         file_size=len(file_bytes),
         file_hash=file_hash,
-        # extracted_text is intentionally NOT populated here — Phase 3.3
+        resume_type=resume_type,
+        processing_status=ProcessingStatus.uploaded,
+        # extracted_text is intentionally NOT populated here — pipeline handles it
     )
     db.add(resume)
 
-    # 15. Commit transaction (DB unique constraint is the last safety net)
+    # 16. Commit transaction (DB unique constraint is the last safety net)
     try:
         db.commit()
     except IntegrityError:
@@ -324,7 +409,7 @@ async def upload_resume(
         # Clean up the file we just wrote to disk
         safe_delete_file(file_path)
         logger.error(
-            "DB IntegrityError (race condition) for student %s, hash %s.",
+            "DB IntegrityError (race condition or type conflict) for student %s, hash %s.",
             student.id,
             file_hash,
         )
@@ -338,14 +423,23 @@ async def upload_resume(
 
     db.refresh(resume)
     logger.info(
-        "Resume uploaded successfully: resume_id=%s student_id=%s filename=%s size=%d bytes",
+        "Resume uploaded successfully: resume_id=%s student_id=%s type=%s filename=%s size=%d bytes",
         resume.id,
         student.id,
+        resume_type.value,
         file.filename,
         len(file_bytes),
     )
 
-    # 16. Return response
+    # 17. Trigger automated pipeline as a background task
+    # Import here to avoid circular imports at module load time
+    from app.services.resume_pipeline import process_resume_pipeline
+    background_tasks.add_task(process_resume_pipeline, resume.id)
+    logger.info(
+        "Pipeline background task queued: resume_id=%s", resume.id
+    )
+
+    # 18. Return immediate upload success response
     return ResumeResponse.model_validate(resume)
 
 

@@ -3,16 +3,23 @@ scripts/test_security_hardening.py
 ------------------------------------
 Phase 3.2.1 Security Hardening — full verification test suite.
 
+Updated in Pre-Phase 3.6:
+    - All upload calls now supply resume_type form field.
+    - Extraction HTTP endpoints removed from regression (now internal pipeline).
+    - Limit test updated: MAX_RESUMES_PER_STUDENT = 2 (1 generic + 1 specialized).
+    - Replacement behavior tested: uploading same type replaces old resume.
+
 Runs:
-    - Original 16 Phase 3.2 regression tests (ensure no breakage)
-    - New security hardening tests:
+    - Original Phase 3.2 regression tests (updated for resume_type)
+    - Phase 3.2.1 Security Hardening tests:
         S1:  Fake PDF (EXE magic bytes renamed .pdf)
         S2:  Fake PDF (plain text renamed .pdf)
         S3:  Fake DOCX (plain text renamed .docx)
         S4:  Corrupted PDF (valid header, broken body)
         S5:  Corrupted DOCX (PK header, random garbage)
         S6:  Path traversal filename (stored safely via UUID)
-        S7:  Resume count limit (MAX_RESUMES_PER_STUDENT)
+        S7:  Resume count limit (MAX_RESUMES_PER_STUDENT = 2)
+        S8:  Invalid resume_type rejected
 """
 
 import io
@@ -43,13 +50,13 @@ def check(label: str, resp, expected_status: int, check_fn=None):
         except Exception as e:
             ok = False
             errors.append(f"{label}: body check error: {e}")
-    status = "PASS" if ok else "FAIL"
+    status_str = "PASS" if ok else "FAIL"
     if not ok:
         errors.append(
             f"{label}: expected {expected_status}, got {resp.status_code}. "
             f"body={resp.text[:300]}"
         )
-    print(f"{status}  {label}")
+    print(f"{status_str}  {label}")
     return resp
 
 
@@ -68,6 +75,29 @@ def make_real_pdf() -> bytes:
         b"trailer\n<< /Size 4 /Root 1 0 R >>\n"
         b"startxref\n190\n%%EOF"
     )
+
+
+def make_unique_pdf(marker: str = "") -> bytes:
+    """Build a unique valid parseable PDF with embedded unique content (different hash each call)."""
+    unique_tag = f"{marker}_{rand}_{uuid.uuid4().hex[:8]}"
+    content = f"Student Resume {unique_tag}\nSkills: Python, FastAPI\nEducation: B.Tech CS"
+    escaped = content.replace("(", "\\(").replace(")", "\\)")
+    stream = f"BT /F1 12 Tf 50 700 Td ({escaped}) Tj ET"
+    stream_bytes = stream.encode("latin-1")
+    stream_len = len(stream_bytes)
+    pdf = (
+        f"%PDF-1.4\n"
+        f"1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n"
+        f"2 0 obj\n<< /Type /Pages /Kids [3 0 R] /Count 1 >>\nendobj\n"
+        f"3 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] "
+        f"/Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>\nendobj\n"
+        f"4 0 obj\n<< /Length {stream_len} >>\nstream\n{stream}\nendstream\nendobj\n"
+        f"5 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n"
+        f"xref\n0 6\n0000000000 65535 f\n0000000009 00000 n\n0000000058 00000 n\n"
+        f"0000000115 00000 n\n0000000250 00000 n\n0000000350 00000 n\n"
+        f"trailer\n<< /Size 6 /Root 1 0 R >>\nstartxref\n450\n%%EOF"
+    )
+    return pdf.encode("latin-1")
 
 
 def make_real_docx() -> bytes:
@@ -150,41 +180,60 @@ fac_hdrs = {"Authorization": f"Bearer {fac_token}"}
 
 
 # ---------------------------------------------------------------------------
-# Original Phase 3.2 Regression Tests (16 tests)
+# Phase 3.2 Regression Tests (updated for resume_type)
 # ---------------------------------------------------------------------------
 
-print("--- Original Phase 3.2 Regression Tests ---")
+print("--- Phase 3.2 Regression Tests (resume_type aware) ---")
 
+# Upload generic PDF
 r = check(
-    "Upload valid PDF (201)",
+    "Upload valid PDF as generic (201)",
     client.post(
         "/resume/upload",
         files={"file": ("my_resume.pdf", io.BytesIO(REAL_PDF), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     201,
-    lambda b: b.get("file_name") == "my_resume.pdf"
-    and b.get("file_type") == ".pdf"
-    and "id" in b,
+    lambda b: (
+        b.get("file_name") == "my_resume.pdf"
+        and b.get("file_type") == ".pdf"
+        and b.get("resume_type") == "generic"
+        and b.get("processing_status") == "uploaded"
+        and "id" in b
+    ),
 )
 first_resume_id = r.json().get("id") if r.status_code == 201 else None
 
-check(
-    "Upload valid DOCX (201)",
+# Upload specialized DOCX
+r2 = check(
+    "Upload valid DOCX as specialized (201)",
     client.post(
         "/resume/upload",
         files={"file": ("resume.docx", io.BytesIO(REAL_DOCX), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        data={"resume_type": "specialized"},
         headers=hdrs,
     ),
     201,
-    lambda b: b.get("file_type") == ".docx",
+    lambda b: b.get("file_type") == ".docx" and b.get("resume_type") == "specialized",
+)
+specialized_resume_id = r2.json().get("id") if r2.status_code == 201 else None
+
+# Verify we now have 2 resumes
+check(
+    "List resumes — total=2 (200)",
+    client.get("/resume", headers=hdrs),
+    200,
+    lambda b: b.get("total") == 2 and len(b.get("resumes", [])) == 2,
 )
 
+# Upload duplicate content (same bytes = same hash = 409)
 check(
-    "Upload duplicate PDF (409)",
+    "Upload duplicate PDF content (409)",
     client.post(
         "/resume/upload",
         files={"file": ("my_resume.pdf", io.BytesIO(REAL_PDF), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     409,
@@ -195,6 +244,7 @@ check(
     client.post(
         "/resume/upload",
         files={"file": ("virus.exe", io.BytesIO(b"MZ" + b"x" * 100), "application/octet-stream")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     400,
@@ -205,6 +255,7 @@ check(
     client.post(
         "/resume/upload",
         files={"file": ("empty.pdf", io.BytesIO(b""), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     400,
@@ -216,6 +267,7 @@ check(
     client.post(
         "/resume/upload",
         files={"file": ("big.pdf", io.BytesIO(big_bytes), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     400,
@@ -226,6 +278,7 @@ check(
     client.post(
         "/resume/upload",
         files={"file": ("r.pdf", io.BytesIO(REAL_PDF), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=fac_hdrs,
     ),
     403,
@@ -236,15 +289,9 @@ check(
     client.post(
         "/resume/upload",
         files={"file": ("r.pdf", io.BytesIO(REAL_PDF), "application/pdf")},
+        data={"resume_type": "generic"},
     ),
     401,
-)
-
-check(
-    "List resumes (200)",
-    client.get("/resume", headers=hdrs),
-    200,
-    lambda b: b.get("total") == 2 and len(b.get("resumes", [])) == 2,
 )
 
 check("Faculty list blocked (403)", client.get("/resume", headers=fac_hdrs), 403)
@@ -270,7 +317,7 @@ check(
 
 if first_resume_id:
     check(
-        "Delete own resume (204)",
+        "Delete own generic resume (204)",
         client.delete(f"/resume/{first_resume_id}", headers=hdrs),
         204,
     )
@@ -294,108 +341,117 @@ check(
 print()
 print("--- Phase 3.2.1 Security Hardening Tests ---")
 
-# S1: EXE renamed to .pdf (Windows PE magic bytes — should fail signature + MIME + parser)
+# S1: EXE renamed to .pdf
 fake_pdf_exe = b"MZ\x90\x00" + b"x" * 200
 check(
     "S1: Fake PDF (EXE magic bytes) rejected (400)",
     client.post(
         "/resume/upload",
         files={"file": ("malware.pdf", io.BytesIO(fake_pdf_exe), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     400,
 )
 
-# S2: Plain text renamed .pdf (should fail signature + parser)
+# S2: Plain text renamed .pdf
 text_as_pdf = b"Hello, I am definitely not a PDF file at all."
 check(
     "S2: Fake PDF (plain text renamed .pdf) rejected (400)",
     client.post(
         "/resume/upload",
         files={"file": ("notapdf.pdf", io.BytesIO(text_as_pdf), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     400,
 )
 
-# S3: Plain text renamed .docx (should fail signature + parser)
+# S3: Plain text renamed .docx
 text_as_docx = b"I am just a text file pretending to be a DOCX document."
 check(
     "S3: Fake DOCX (plain text renamed .docx) rejected (400)",
     client.post(
         "/resume/upload",
         files={"file": ("notadocx.docx", io.BytesIO(text_as_docx), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        data={"resume_type": "specialized"},
         headers=hdrs,
     ),
     400,
 )
 
-# S4: Corrupted PDF (valid header but body is garbage — parser should fail)
+# S4: Corrupted PDF
 corrupted_pdf = b"%PDF-1.4 corrupted garbage that pdfplumber cannot parse " + b"\x00\xff\xfe" * 20
 check(
     "S4: Corrupted PDF (valid header, broken body) rejected (400)",
     client.post(
         "/resume/upload",
         files={"file": ("corrupt.pdf", io.BytesIO(corrupted_pdf), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     400,
 )
 
-# S5: Corrupted DOCX (PK header but random garbage — parser should fail)
+# S5: Corrupted DOCX
 corrupted_docx = b"PK\x03\x04" + b"\xff\xfe\xab\xcd" * 60
 check(
     "S5: Corrupted DOCX (PK magic, broken archive) rejected (400)",
     client.post(
         "/resume/upload",
         files={"file": ("corrupt.docx", io.BytesIO(corrupted_docx), "application/vnd.openxmlformats-officedocument.wordprocessingml.document")},
+        data={"resume_type": "specialized"},
         headers=hdrs,
     ),
     400,
 )
 
-# S6: Path traversal filename — must be stored safely via UUID (not on disk at traversal path)
-# A real valid PDF with a malicious filename. Should succeed — the filename is only
-# stored as metadata; the disk file is always a UUID.
+# S6: Path traversal filename — must succeed (stored safely as UUID on disk)
+# After the earlier delete, student has 1 specialized resume. Generic slot is free.
 check(
-    "S6: Path traversal filename handled safely (201)",
+    "S6: Path traversal filename stored safely (201)",
     client.post(
         "/resume/upload",
         files={"file": ("../../../etc/passwd.pdf", io.BytesIO(REAL_PDF), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
     201,
 )
 
-# S7: Resume count limit
-# Current state: 1 DOCX + 1 path-traversal PDF = 2 resumes
-# Upload 3 more to reach MAX_RESUMES_PER_STUDENT (5)
-for i in range(3):
-    pdf_variant = bytearray(REAL_PDF)
-    variant_bytes = f"variant_{rand}_{i}".encode()
-    pdf_variant[5:5 + len(variant_bytes)] = variant_bytes
-    check(
-        f"S7a: Upload within limit resume {i + 3}/5 (201)",
-        client.post(
-            "/resume/upload",
-            files={"file": (f"r{i}.pdf", io.BytesIO(bytes(pdf_variant)), "application/pdf")},
-            headers=hdrs,
-        ),
-        201,
-    )
-
-# Now at 5 — next upload should be blocked with 400
-pdf_over_limit = bytearray(REAL_PDF)
-pdf_over_limit[5:15] = b"overlimit!"
+# S7: Resume type limit — student now has: generic + specialized = 2 resumes
+# Test: upload another variant of generic — it should REPLACE the existing generic (201).
+# We use make_unique_pdf() to generate a completely different PDF (unique hash) so the
+# duplicate-content check passes and only the type-replacement logic is exercised.
 check(
-    "S7b: Upload when at limit (400)",
+    "S7: Replace existing generic resume (201) — replacement acts as safety valve",
     client.post(
         "/resume/upload",
-        files={"file": ("overlimit.pdf", io.BytesIO(bytes(pdf_over_limit)), "application/pdf")},
+        files={"file": (f"updated_generic_{rand}.pdf", io.BytesIO(make_unique_pdf("s7")), "application/pdf")},
+        data={"resume_type": "generic"},
         headers=hdrs,
     ),
-    400,
-    lambda b: "limit" in b.get("detail", "").lower(),
+    201,
+)
+
+# Verify still only 2 resumes after replacement
+check(
+    "S7b: Total resumes still 2 after replacement (200)",
+    client.get("/resume", headers=hdrs),
+    200,
+    lambda b: b.get("total") == 2,
+)
+
+# S8: Invalid resume_type value rejected
+check(
+    "S8: Invalid resume_type value rejected (422)",
+    client.post(
+        "/resume/upload",
+        files={"file": ("r.pdf", io.BytesIO(REAL_PDF), "application/pdf")},
+        data={"resume_type": "executive"},
+        headers=hdrs,
+    ),
+    422,
 )
 
 
@@ -410,5 +466,5 @@ if errors:
         print(f"  {e}")
     sys.exit(1)
 else:
-    total = 16 + 8  # 16 regression + 8 security tests
-    print(f"All {total} tests passed (16 regression + 8 security hardening).")
+    total = 16 + 9  # 16 regression + 9 security tests
+    print(f"All {total} tests passed (16 regression + 9 security hardening).")

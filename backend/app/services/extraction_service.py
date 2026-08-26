@@ -294,6 +294,100 @@ def extract_resume(
     )
 
 
+# ---------------------------------------------------------------------------
+# Internal Pipeline Function (Pre-Phase 3.6)
+# ---------------------------------------------------------------------------
+
+
+def extract_resume_internal(db: Session, resume: ResumeFile) -> None:
+    """
+    Extract, normalize, and persist text for a ResumeFile ORM object.
+
+    This is the internal-only variant called by resume_pipeline.process_resume_pipeline().
+    It accepts the ResumeFile ORM object directly — ownership validation is NOT
+    performed here because the pipeline orchestrator already controls which
+    resume records it processes.
+
+    Security layers preserved (identical to extract_resume()):
+        - Path confinement (file must be within UPLOAD_DIR)
+        - File binary re-validation (signature, MIME, size, parseability)
+        - Timeout-protected extraction (MAX_EXTRACTION_SECONDS = 15)
+
+    Error handling:
+        - Raises ValueError on any validation or extraction failure.
+        - Raises RuntimeError on DB commit failure.
+        - Does NOT raise HTTPException — this runs outside of a request context.
+
+    Args:
+        db:     SQLAlchemy session (pipeline-owned, not request-scoped).
+        resume: ResumeFile ORM object loaded by the pipeline orchestrator.
+
+    Side effects:
+        - Sets resume.extracted_text to the normalized extracted content.
+        - Updates resume.updated_at.
+        - Commits the DB transaction.
+    """
+    logger.info(
+        "Internal extraction started: resume_id=%s file_type=%s",
+        resume.id,
+        resume.file_type,
+    )
+
+    # 1. Path confinement & existence check
+    try:
+        abs_file_path = _verify_file_confinement_and_readability(resume.file_path, UPLOAD_DIR)
+    except HTTPException as exc:
+        raise ValueError(
+            f"Path validation failed for resume_id={resume.id}: {exc.detail}"
+        ) from exc
+
+    # 2. Security re-validation of file binary
+    try:
+        _revalidate_file_content(abs_file_path, resume.file_type)
+    except HTTPException as exc:
+        raise ValueError(
+            f"File re-validation failed for resume_id={resume.id}: {exc.detail}"
+        ) from exc
+
+    # 3. Extract text with timeout protection
+    try:
+        extracted_text = _extract_with_timeout(abs_file_path)
+    except HTTPException as exc:
+        raise ValueError(
+            f"Text extraction failed for resume_id={resume.id}: {exc.detail}"
+        ) from exc
+
+    # 4. Persist to database
+    now = datetime.now(timezone.utc)
+    resume.extracted_text = extracted_text
+    resume.updated_at = now
+
+    try:
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        logger.error(
+            "DB commit failed during internal extraction for resume_id=%s: %s",
+            resume.id,
+            exc,
+        )
+        raise RuntimeError(
+            f"Database error while saving extracted text for resume_id={resume.id}"
+        ) from exc
+
+    db.refresh(resume)
+
+    char_count = len(extracted_text)
+    word_count = len(extracted_text.split())
+    logger.info(
+        "Internal extraction completed: resume_id=%s chars=%d words=%d",
+        resume.id,
+        char_count,
+        word_count,
+    )
+
+
+
 def get_extracted_text(
     db: Session, resume_id: uuid.UUID, user_id: uuid.UUID
 ) -> ExtractedTextResponse:

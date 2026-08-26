@@ -27,14 +27,21 @@ Stage 1 identity refactor:
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+import math
 
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.enums import UserRole
-from app.core.security import create_access_token, hash_password, verify_password
+from app.core.security import (
+    create_access_token,
+    hash_password,
+    verify_password,
+    MAX_LOGIN_ATTEMPTS,
+    ACCOUNT_LOCK_MINUTES,
+)
 from app.models.faculty import Faculty
 from app.models.student import Student
 from app.models.user import User
@@ -218,6 +225,60 @@ def register_faculty(db: Session, data: RegisterFacultySchema) -> UserResponseSc
 # ---------------------------------------------------------------------------
 
 
+def _verify_and_track_login(db: Session, user: User | None, password_attempt: str) -> None:
+    """
+    Shared helper for verifying passwords and tracking failed login attempts.
+    Raises HTTPException (401 or 429) if validation fails.
+    Updates last_login_at on success.
+    """
+    _INVALID_CREDENTIALS = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid credentials.",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+    if not user:
+        raise _INVALID_CREDENTIALS
+
+    now = datetime.now(timezone.utc)
+
+    # 1. Check if account is locked
+    if user.locked_until and user.locked_until > now:
+        remaining = (user.locked_until - now).total_seconds()
+        minutes = math.ceil(remaining / 60)
+        # We can also add custom headers like Retry-After
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail=f"Account temporarily locked. Try again in {minutes} minutes.",
+            headers={"WWW-Authenticate": "Bearer", "Retry-After": str(int(remaining))},
+        )
+
+    # 2. Verify password
+    if not verify_password(password_attempt, user.password_hash):
+        user.failed_login_attempts += 1
+        if user.failed_login_attempts >= MAX_LOGIN_ATTEMPTS:
+            user.locked_until = now + timedelta(minutes=ACCOUNT_LOCK_MINUTES)
+        db.commit()
+        raise _INVALID_CREDENTIALS
+
+    # 3. Successful login - clear counters
+    if user.failed_login_attempts > 0 or user.locked_until is not None:
+        user.failed_login_attempts = 0
+        user.locked_until = None
+
+    # 4. Check active status
+    if not user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="This account has been deactivated.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    # 5. Update last login
+    user.last_login_at = now
+    db.commit()
+
+
 def login_user(db: Session, data: LoginSchema) -> TokenSchema:
     """
     Authenticate a user by registration_number and password.
@@ -227,38 +288,13 @@ def login_user(db: Session, data: LoginSchema) -> TokenSchema:
 
     Raises:
         HTTPException 401 — invalid credentials or inactive account.
-
-    Note:
-        The error message is intentionally generic ("Invalid credentials")
-        regardless of whether the registration_number does not exist or the
-        password is wrong. This prevents user-enumeration attacks.
+        HTTPException 429 — account locked.
     """
-    _INVALID_CREDENTIALS = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid credentials.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
     user: User | None = db.query(User).filter(
         User.registration_number == data.registration_number
     ).first()
 
-    if not user:
-        raise _INVALID_CREDENTIALS
-
-    if not verify_password(data.password, user.password_hash):
-        raise _INVALID_CREDENTIALS
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="This account has been deactivated.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Update last login timestamp
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
+    _verify_and_track_login(db, user, data.password)
 
     token = create_access_token(
         subject=str(user.id),
@@ -275,32 +311,11 @@ def login_oauth2(db: Session, username: str, password: str) -> TokenSchema:
     Matches 'username' against registration_number or email for maximum convenience.
     Updates last_login_at on success and returns a TokenSchema with JWT.
     """
-    _INVALID_CREDENTIALS = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Invalid credentials.",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-
     user: User | None = db.query(User).filter(
         (User.registration_number == username) | (User.email == username)
     ).first()
 
-    if not user:
-        raise _INVALID_CREDENTIALS
-
-    if not verify_password(password, user.password_hash):
-        raise _INVALID_CREDENTIALS
-
-    if not user.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="This account has been deactivated.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    # Update last login timestamp
-    user.last_login_at = datetime.now(timezone.utc)
-    db.commit()
+    _verify_and_track_login(db, user, password)
 
     token = create_access_token(
         subject=str(user.id),

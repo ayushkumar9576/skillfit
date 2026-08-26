@@ -31,3 +31,11 @@ pdfplumber
 
 # DOCX parsing — validates DOCX integrity at upload; reused in Phase 3.3 text extraction
 python-docx
+
+# Phase 3.6 – LLM Integration Layer
+# Official OpenAI Python SDK (async client + structured JSON output).
+# Requires >= 1.0 — the 0.x SDK exposed an incompatible API surface.
+openai>=1.0
+
+# Official Google GenAI SDK (Phase 3.6.1 Gemini integration)
+google-genai
