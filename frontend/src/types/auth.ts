@@ -27,6 +27,19 @@ export interface User {
   role: UserRole;
   is_active: boolean;
   registration_number: string;
+  requires_password_change?: boolean;
+  profile_completed?: boolean;
+  
+  // Professional URLs (Student)
+  linkedin_url?: string;
+  github_url?: string;
+  portfolio_url?: string;
+  
+  // Extra fields that will be added in profile APIs
+  branch?: string;
+  cgpa?: number;
+  phone?: string;
+  department?: string;
 }
 
 /**
@@ -75,10 +88,12 @@ export interface RegisterFacultyRequest {
 }
 
 /** Auth context state shape exposed via AuthProvider. */
-export interface AuthContextValue {
+export interface AuthState {
   user: User | null;
+  token: string | null;
   isAuthenticated: boolean;
   isLoading: boolean;
-  login: (token: string) => Promise<void>;
+  login: (credentials: LoginRequest) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }

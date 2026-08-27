@@ -1,35 +1,32 @@
 "use client";
 
-/**
- * app/(auth)/login/page.tsx
- * -------------------------
- * Login page route (/login).
- * Redirects already-authenticated users to /dashboard.
- * useSearchParams is wrapped in Suspense per Next.js requirement.
- */
-
 import Link from "next/link";
 import { Suspense, useEffect } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Zap } from "lucide-react";
 import LoginForm from "@/components/auth/LoginForm";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuthContext } from "@/providers/AuthProvider";
 
-/** Inner component that reads searchParams — must be inside Suspense. */
 function LoginPageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { isAuthenticated, isLoading } = useAuth();
+  const { isAuthenticated, isLoading, user } = useAuthContext();
   const justRegistered = searchParams.get("registered") === "true";
 
-  // Redirect authenticated users away from the login page
+  // Redirect authenticated users away from the login page based on onboarding state
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      router.replace("/dashboard");
+    if (!isLoading && isAuthenticated && user) {
+      if (user.requires_password_change) {
+        router.replace("/change-password");
+      } else if (user.profile_completed === false) {
+        router.replace("/complete-profile");
+      } else {
+        router.replace(`/${user.role}/dashboard`);
+      }
     }
-  }, [isAuthenticated, isLoading, router]);
+  }, [isAuthenticated, isLoading, user, router]);
 
-  if (isLoading) return null;
+  if (isLoading || isAuthenticated) return null;
 
   return (
     <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow-md">
@@ -56,22 +53,10 @@ function LoginPageContent() {
       )}
 
       <LoginForm />
-
-      {/* Register link */}
-      <p className="mt-6 text-center text-sm text-slate-500">
-        Don&apos;t have an account?{" "}
-        <Link
-          href="/register"
-          className="font-medium text-indigo-600 hover:text-indigo-700 transition-colors"
-        >
-          Create one
-        </Link>
-      </p>
     </div>
   );
 }
 
-/** Page wrapper — Suspense required for useSearchParams in Next.js static builds. */
 export default function LoginPage() {
   return (
     <div className="flex min-h-screen flex-col items-center justify-center bg-slate-50 px-4 py-12">

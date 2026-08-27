@@ -8,13 +8,11 @@
  */
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Eye, EyeOff, Loader2 } from "lucide-react";
-import { loginUser } from "@/lib/api/auth";
-import { useAuth } from "@/hooks/useAuth";
+import { useAuthContext } from "@/providers/AuthProvider";
 import { parseApiError } from "@/lib/utils";
 import ErrorAlert from "@/components/shared/ErrorAlert";
 
@@ -29,8 +27,7 @@ const loginSchema = z.object({
 type LoginFormData = z.infer<typeof loginSchema>;
 
 export default function LoginForm() {
-  const router = useRouter();
-  const { login } = useAuth();
+  const { login } = useAuthContext();
   const [showPassword, setShowPassword] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
 
@@ -45,12 +42,11 @@ export default function LoginForm() {
   const onSubmit = async (data: LoginFormData) => {
     setApiError(null);
     try {
-      const tokenResponse = await loginUser({
+      await login({
         registration_number: data.registration_number,
         password: data.password,
       });
-      await login(tokenResponse.access_token);
-      router.push("/dashboard");
+      // Routing is now handled by the page component watching the AuthState
     } catch (err) {
       const parsed = parseApiError(err);
       setApiError(parsed.message);

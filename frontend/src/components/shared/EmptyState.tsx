@@ -14,10 +14,11 @@ interface EmptyStateProps {
   icon: LucideIcon;
   title: string;
   description: string;
+  action?: React.ReactNode;
   className?: string;
 }
 
-export default function EmptyState({ icon: Icon, title, description, className }: EmptyStateProps) {
+export default function EmptyState({ icon: Icon, title, description, action, className }: EmptyStateProps) {
   return (
     <div
       className={cn(
@@ -30,6 +31,7 @@ export default function EmptyState({ icon: Icon, title, description, className }
       </div>
       <h3 className="mb-1.5 text-sm font-semibold text-slate-700">{title}</h3>
       <p className="max-w-sm text-sm leading-relaxed text-slate-500">{description}</p>
+      {action && <div className="mt-6">{action}</div>}
     </div>
   );
 }
