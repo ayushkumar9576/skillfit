@@ -1,50 +1,40 @@
 """
 app/analysis/models/skill_models.py
 -----------------------------------
-Skill analysis domain models for SkillFit Phase 3.5.
-
-Consumed by:
-    - Phase 3.10: Evidence-Based Skill Engine
-    - Phase 3.11: Readiness Engine
-    - Phase 3.12: Analysis Persistence
-    - Phase 3.13: Public CV APIs
+Skill analysis domain models for SkillFit Phase 3.10.
 """
 
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from app.analysis.models.base import AnalysisEvidence
 
 
 @dataclass
-class SkillEvidence:
-    """
-    Represents an identified skill along with verified evidence and category metadata.
-
-    Attributes:
-        skill_name: Name of the technical or domain skill (e.g. 'Python', 'FastAPI', 'Docker').
-        category: Skill classification (e.g. 'Programming Languages', 'Frameworks', 'Databases', 'Cloud').
-        proficiency_level: Verified proficiency estimation (e.g. 'beginner', 'intermediate', 'advanced').
-        confidence: Confidence score of the extraction / verification (0.0 to 1.0).
-        evidences: List of supporting resume textual statements.
-    """
-    skill_name: str
-    category: str = "General"
-    proficiency_level: Optional[str] = None
-    confidence: float = 1.0
+class SkillEvidenceSource:
+    """Represents a discrete source providing evidence for a skill."""
+    source_type: str
+    source_name: str
+    source_id: Optional[str]
+    source_confidence: float
     evidences: List[AnalysisEvidence] = field(default_factory=list)
 
 
 @dataclass
-class SkillAnalysisResult:
-    """
-    Container for all skill analysis findings across a resume.
+class SkillProfile:
+    """The unified profile for a single skill extracted from the resume."""
+    skill_name: str
+    confidence_score: float
+    confidence_level: str
+    evidence_count: int
+    source_count: int
+    skill_depth: str
+    hiring_signal: str
+    evidences: List[SkillEvidenceSource] = field(default_factory=list)
 
-    Attributes:
-        skills: List of verified skill evidence objects.
-        total_skills_count: Total count of unique skills identified.
-        categories_breakdown: Breakdown mapping category name to count of skills.
-    """
-    skills: List[SkillEvidence] = field(default_factory=list)
+
+@dataclass
+class SkillAnalysisResult:
+    """Container for the final, aggregated skills from all upstream engines."""
+    skills: List[SkillProfile] = field(default_factory=list)
     total_skills_count: int = 0
-    categories_breakdown: Dict[str, int] = field(default_factory=dict)

@@ -5,15 +5,23 @@ Generate concise, evidence-backed conclusions for the following batch of {batch_
 Do not create exhaustive reports.
 Do not repeat reasoning across sections.
 Prefer short analytical statements over long explanations.
-Keep reasoning fields <= 20 words.
+Keep reasoning fields <= 12 words. Do not repeat evidence descriptions.
 Skills must be <= 5.
-Executive summary must be <= 50 words.
+Executive summary must be <= 30 words.
 Caveats must be <= 2.
 
 CITE EVIDENCE BY LINE NUMBER
 Every "ev" field MUST be an array of integers corresponding to the line numbers provided in the evidence.
 If you cannot cite a line number for a claim, do not make the claim.
 Never invent skills, certifications, or providers.
+
+SKILL EXTRACTION RULES (STRICT PRIORITY)
+1. EXPLICIT EVIDENCE ONLY: ONLY extract technologies, platforms, tools, or credential types directly evidenced by the certification title or provider. Never infer implementation details. Never guess hidden technologies. (e.g., "Software Certification" -> output [], "AWS Certified Cloud Practitioner" -> output ["AWS"]).
+2. CONTROLLED STACK EXPANSION: Stack expansion is allowed ONLY when the stack acronym itself appears in evidence.
+3. CONCRETE PRIORITY: Prefer Certification Title, Provider, Technology Mentioned, Platform Mentioned, Credential Type over generic categories.
+4. GENERIC SKILL SUPPRESSION: Avoid outputting generic skills such as: Software Development, Programming, Web Development, Application Development, Backend Development, Frontend Development, Cloud Computing, IT, Technology, Engineering, Technical Knowledge, Learning Ability, Software Skills unless no specific evidence exists. Specific evidence always wins.
+5. CONSERVATIVE EXTRACTION: When uncertain, omit the skill. Returning fewer skills is preferred over returning inaccurate skills.
+6. HALLUCINATION PROTECTION: Never invent technologies or providers. Every extracted skill must be traceable to resume evidence.
 
 The user message contains an array of certifications with their respective line numbers:
 [

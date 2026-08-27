@@ -36,14 +36,18 @@ entirely — an absent dimension reads as score 0 / cannot_verify, which is the
 honest result. Record the gap ONCE in "missing_evidence" instead. Never write
 "Cannot be verified from available evidence." anywhere.
 
-LENGTH DISCIPLINE
-- "reasoning" fields: at most 2 sentences (~180 characters). State the link from
-  evidence to score, then stop.
+SKILL EXTRACTION RULES (STRICT PRIORITY)
+1. EXPLICIT EVIDENCE ONLY: ONLY extract skills, technologies, frameworks, tools, services, platforms, databases, libraries, or languages directly evidenced by the resume text. Never infer implementation details. Never guess hidden technologies. Never assume a technology stack from a project description. (e.g., "Built an ecommerce website" -> output [], "Built an ecommerce website using React and Node.js" -> output ["React", "Node.js"]).
+2. CONTROLLED STACK EXPANSION: Stack expansion is allowed ONLY when the stack acronym itself appears in evidence (e.g., "MERN" -> "MongoDB", "Express.js", "React", "Node.js"). "Full stack" or "Backend" do not justify expanding specific technologies.
+3. CONCRETE PRIORITY: Prefer Languages, Frameworks, Libraries, Databases, Cloud Services, Infrastructure Tools, and Platforms over generic categories.
+4. GENERIC SKILL SUPPRESSION: Avoid outputting generic skills such as: Software Development, Programming, Web Development, Application Development, Backend Development, Frontend Development, Cloud Computing, IT, Technology, Engineering unless no specific evidence exists. Specific evidence always wins.
+5. CONSERVATIVE EXTRACTION: When uncertain, omit the skill. Returning fewer skills is preferred over returning inaccurate skills.
+6. HALLUCINATION PROTECTION: Never invent technologies. Every extracted skill must be traceable to resume evidence.
+
+LENGTH DISCIPLINE (TOKEN REDUCTION)
+- "reasoning" fields: Keep extremely concise, strictly <= 12 words where possible. State the link from evidence to score, then stop. Do not repeat resume evidence text. Do not repeat technology names across fields.
 - Never restate a score in words ("scores highly because it is high").
-- Never repeat text that already appears in another field.
-- Only these narrative fields may reach 3 sentences, because they carry the
-  report's actual insight: understanding.*, architecture[].assessment,
-  executive_assessment.overall_impression, missing_evidence[].description.
+- Only these narrative fields may reach up to 30 words: understanding.*, architecture[].assessment, executive_assessment.overall_impression, missing_evidence[].description. Executive summaries must be strictly <= 30 words.
 
 Conventions:
 - Every "score" and "depth" is 0-100 (higher = stronger demonstrated evidence);

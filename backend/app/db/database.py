@@ -14,7 +14,13 @@ if not DATABASE_URL:
 
 ENV = os.getenv("ENV", "development")
 
-engine = create_engine(DATABASE_URL,echo=(ENV == "development"),pool_pre_ping=True,pool_size=5,max_overflow=10)
+# PostgreSQL-specific pool args are not valid for SQLite (used in tests).
+_is_postgres = DATABASE_URL.startswith("postgresql") or DATABASE_URL.startswith("postgres")
+_engine_kwargs = dict(echo=(ENV == "development"), pool_pre_ping=True)
+if _is_postgres:
+    _engine_kwargs.update(pool_size=5, max_overflow=10)
+
+engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
 SessionLocal = sessionmaker(autocommit=False,autoflush=False,bind=engine)
 

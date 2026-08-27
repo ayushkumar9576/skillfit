@@ -150,6 +150,8 @@ def _stage_detect_sections(db: Session, resume: ResumeFile) -> bool:
         return False
     try:
         result = detect_sections_from_text(resume.extracted_text, detector_type="rule_based")
+        resume.extracted_sections = result.sections
+        setattr(resume, "_temp_sections_result", result.sections)
         logger.info(
             "Pipeline Stage 2 (section detection) completed: resume_id=%s "
             "sections_detected=%d confidence=%.2f",
@@ -230,6 +232,9 @@ def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
                 ensure_ascii=False,
             )
         
+        # Temp save for downstream engines until Phase 3.12 persistence
+        setattr(resume, "_temp_project_result", result)
+
         print("\n===== PROJECT ANALYSIS RESULT =====")
         print(f"Total Projects: {result.total_projects_count}")
         print(f"Reports Generated: {len(result.reports)}")
@@ -300,6 +305,9 @@ def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
                 indent=2,
                 ensure_ascii=False,
             )
+
+        # Temp save for downstream engines until Phase 3.12 persistence
+        setattr(resume, "_temp_internship_result", result)
 
         print("\n===== INTERNSHIP ANALYSIS RESULT =====")
         print(f"Total Internships: {result.total_internships_count}")
@@ -372,6 +380,9 @@ def _stage_certification_analysis(_db: Session, resume: ResumeFile) -> bool:
                 ensure_ascii=False,
             )
 
+        # Temp save for downstream engines until Phase 3.12 persistence
+        setattr(resume, "_temp_certification_result", result)
+
         print("\n===== CERTIFICATION ANALYSIS RESULT =====")
         print(f"Total Certifications: {result.total_certifications_count}")
         print(f"Reports Generated: {len(result.reports)}")
@@ -401,16 +412,108 @@ def _stage_certification_analysis(_db: Session, resume: ResumeFile) -> bool:
         return True
 
 
-def _stage_skill_analysis(_db: Session, _resume: ResumeFile) -> bool:
-    """[Phase 3.10 placeholder] Evidence-Based Skill Engine — not yet implemented."""
-    logger.debug("Pipeline Stage 6 (skill analysis) — placeholder, skipping.")
-    return True
+def _stage_skill_analysis(_db: Session, resume: ResumeFile) -> bool:
+    """
+    Stage 6 — Evidence-Based Skill Engine (Phase 3.10).
+    Aggregates skills from Projects, Internships, and Certifications.
+    """
+    try:
+        from app.analysis.engines.skill_analysis_engine import SkillAnalysisEngine
+        
+        project_result = getattr(resume, "_temp_project_result", None)
+        internship_result = getattr(resume, "_temp_internship_result", None)
+        certification_result = getattr(resume, "_temp_certification_result", None)
+        
+        p_reports = project_result.reports if project_result else []
+        i_reports = internship_result.reports if internship_result else []
+        c_reports = certification_result.reports if certification_result else []
+        
+        temp_sections = getattr(resume, "_temp_sections_result", {})
+        self_reported = temp_sections.get("skills", "")
+        
+        engine = SkillAnalysisEngine()
+        result = engine.analyze(
+            project_reports=p_reports,
+            internship_reports=i_reports,
+            certification_reports=c_reports,
+            self_reported_skills_text=self_reported
+        )
+        
+        with open(debug_dir / "debug_skill.json", "w", encoding="utf-8") as f:
+            json.dump(
+                asdict(result),
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+            
+        print("\n===== SKILL ANALYSIS RESULT =====")
+        print(f"Total Skills: {result.total_skills_count}")
+        for i, skill in enumerate(result.skills):
+            print(f"Skill {i+1}: {skill.skill_name}")
+            print(f"  Confidence: {skill.confidence_score} ({skill.confidence_level})")
+            print(f"  Depth: {skill.skill_depth}")
+            print(f"  Hiring Signal: {skill.hiring_signal}")
+        print("=================================\n")
+        
+        setattr(resume, "_temp_skill_result", result)
+        return True
+    except Exception as exc:
+        logger.error(
+            "Pipeline Stage 6 (skill analysis) FAILED: resume_id=%s error=%s",
+            resume.id,
+            exc,
+        )
+        return False
 
 
-def _stage_readiness_engine(_db: Session, _resume: ResumeFile) -> bool:
-    """[Phase 3.11 placeholder] Readiness Engine — not yet implemented."""
-    logger.debug("Pipeline Stage 7 (readiness engine) — placeholder, skipping.")
-    return True
+def _stage_readiness_engine(db: Session, resume: ResumeFile) -> bool:
+    """
+    Stage 7 — Readiness Engine (Phase 3.11).
+    Aggregates Project, Internship, Certification, and Skill results to calculate Readiness.
+    """
+    try:
+        from app.analysis.engines.readiness_engine import ReadinessEngine
+        
+        project_result = getattr(resume, "_temp_project_result", None)
+        internship_result = getattr(resume, "_temp_internship_result", None)
+        certification_result = getattr(resume, "_temp_certification_result", None)
+        skill_result = getattr(resume, "_temp_skill_result", None)
+        
+        engine = ReadinessEngine()
+        result = engine.analyze(
+            resume_id=str(resume.id),
+            project_result=project_result,
+            internship_result=internship_result,
+            certification_result=certification_result,
+            skill_result=skill_result,
+        )
+        
+        with open(debug_dir / "debug_readiness.json", "w", encoding="utf-8") as f:
+            json.dump(
+                result.to_dict(),
+                f,
+                indent=2,
+                ensure_ascii=False,
+            )
+            
+        print("\n===== READINESS ANALYSIS RESULT =====")
+        print(f"Readiness Score: {result.readiness_score} ({result.readiness_level.value})")
+        print(f"Overall Confidence: {result.overall_confidence}")
+        print(f"Analysis Status: {result.analysis_status.value}")
+        print(f"Strengths: {len(result.strengths)}")
+        print(f"Gaps: {len(result.gaps)}")
+        print("======================================\n")
+        
+        setattr(resume, "_temp_readiness_result", result)
+        return True
+    except Exception as exc:
+        logger.error(
+            "Pipeline Stage 7 (readiness analysis) FAILED: resume_id=%s error=%s",
+            resume.id,
+            exc,
+        )
+        return False
 
 
 def _stage_llm_integration(_db: Session, _resume: ResumeFile) -> bool:
@@ -419,10 +522,51 @@ def _stage_llm_integration(_db: Session, _resume: ResumeFile) -> bool:
     return True
 
 
-def _stage_persist_analysis(_db: Session, _resume: ResumeFile) -> bool:
-    """[Phase 3.12 placeholder] Analysis Persistence — not yet implemented."""
-    logger.debug("Pipeline Stage 9 (analysis persistence) — placeholder, skipping.")
-    return True
+def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:
+    """
+    Stage 9 — Analysis Persistence (Phase 3.12).
+
+    Persists all analysis engine outputs into the database within a single
+    transaction boundary. This stage calls db.add() only — it does NOT
+    commit. The commit happens in _set_status(completed) immediately after
+    all stages succeed, making persistence atomic with the status update.
+
+    Returns:
+        True if persistence was staged successfully.
+        False if a non-recoverable error occurs (pipeline marks as failed).
+    """
+    from app.services.analysis_persistence_service import persist_analysis_results
+
+    project_result = getattr(resume, "_temp_project_result", None)
+    internship_result = getattr(resume, "_temp_internship_result", None)
+    certification_result = getattr(resume, "_temp_certification_result", None)
+    skill_result = getattr(resume, "_temp_skill_result", None)
+    readiness_result = getattr(resume, "_temp_readiness_result", None)
+
+    success = persist_analysis_results(
+        db=db,
+        student_id=resume.student_id,
+        resume_id=resume.id,
+        project_result=project_result,
+        internship_result=internship_result,
+        certification_result=certification_result,
+        skill_result=skill_result,
+        readiness_result=readiness_result,
+    )
+
+    if success:
+        logger.info(
+            "Pipeline Stage 9 (analysis persistence) staged: resume_id=%s student_id=%s",
+            resume.id,
+            resume.student_id,
+        )
+    else:
+        logger.error(
+            "Pipeline Stage 9 (analysis persistence) FAILED: resume_id=%s student_id=%s",
+            resume.id,
+            resume.student_id,
+        )
+    return success
 
 
 # ---------------------------------------------------------------------------

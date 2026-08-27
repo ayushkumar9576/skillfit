@@ -3,7 +3,7 @@ from datetime import datetime
 from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from typing import Optional
 from app.db.database import Base
 from app.core.enums import ResumeType, ProcessingStatus
@@ -35,6 +35,7 @@ class ResumeFile(Base):
     file_size: Mapped[int] = mapped_column(Integer, nullable=False)
     file_hash: Mapped[str] = mapped_column(String(64), nullable=False)
     extracted_text: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    extracted_sections: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     # Resume category: generic or specialized. Enforced unique per student at DB level.
     resume_type: Mapped[ResumeType] = mapped_column(

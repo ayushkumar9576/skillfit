@@ -9,8 +9,9 @@ from app.analysis.models.base import (
     AnalysisMetadata,
 )
 from app.analysis.models.skill_models import (
-    SkillEvidence,
     SkillAnalysisResult,
+    SkillProfile,
+    SkillEvidenceSource,
 )
 from app.analysis.models.project_models import (
     ProjectEvidence,
@@ -60,7 +61,7 @@ from app.analysis.models.publication_models import (
     PublicationAnalysisResult,
 )
 from app.analysis.models.readiness_models import (
-    CategoryScore,
+    ScoreBreakdown,
     ReadinessAnalysisResult,
 )
 from app.analysis.models.aggregate import (
@@ -118,6 +119,6 @@ __all__ = [
     "PublicationEvidence",
     "PublicationAnalysisResult",
     # Readiness Domain
-    "CategoryScore",
+    "ScoreBreakdown",
     "ReadinessAnalysisResult",
 ]
