@@ -30,7 +30,7 @@ from typing import List
 from fastapi import APIRouter, Depends, File, Form, UploadFile, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_db, require_roles
+from app.api.deps import get_db, require_roles, require_onboarding_completed
 from app.core.enums import ProcessingStatus, ResumeType, UserRole
 from app.models.certification import Certification
 from app.models.cv_analysis import CVAnalysis
@@ -127,6 +127,7 @@ async def upload_resume(
     resume_type: ResumeType = Form(..., description="'generic' or 'specialized'."),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> ResumeResponse:
     return await resume_service.upload_resume(
         db, file, current_user.id, resume_type
@@ -148,6 +149,7 @@ async def upload_resume(
 def list_resumes(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> ResumeListResponse:
     return resume_service.list_resumes(db, current_user.id)
 
@@ -171,6 +173,7 @@ def get_resume(
     resume_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> ResumeResponse:
     student = _get_student(db, current_user)
     resume = _get_owned_resume(db, resume_id, student.id)
@@ -195,6 +198,7 @@ def delete_resume(
     resume_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> None:
     resume_service.delete_resume(db, resume_id, current_user.id)
 
@@ -215,6 +219,7 @@ def get_readiness(
     resume_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> ReadinessResponse:
     student = _get_student(db, current_user)
     resume = _get_owned_resume(db, resume_id, student.id)
@@ -256,6 +261,7 @@ def get_skills(
     resume_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> SkillsListResponse:
     student = _get_student(db, current_user)
     resume = _get_owned_resume(db, resume_id, student.id)
@@ -291,6 +297,7 @@ def get_projects(
     resume_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> ProjectsListResponse:
     student = _get_student(db, current_user)
     resume = _get_owned_resume(db, resume_id, student.id)
@@ -326,6 +333,7 @@ def get_internships(
     resume_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> InternshipsListResponse:
     student = _get_student(db, current_user)
     resume = _get_owned_resume(db, resume_id, student.id)
@@ -360,6 +368,7 @@ def get_certifications(
     resume_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> CertificationsListResponse:
     student = _get_student(db, current_user)
     resume = _get_owned_resume(db, resume_id, student.id)
@@ -399,6 +408,7 @@ def get_sections(
     resume_id: uuid.UUID,
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
 ) -> SectionsResponse:
     student = _get_student(db, current_user)
     resume = _get_owned_resume(db, resume_id, student.id)

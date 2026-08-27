@@ -12,6 +12,9 @@ from app.api.auth import router as auth_router
 from app.api.resume import router as resume_router
 from app.api.v1.student_resumes import router as student_resumes_router
 from app.api.v1.admin_resumes import router as admin_resumes_router
+from app.api.v1.admin_users import router as admin_users_router
+from app.api.v1.profile import router as profile_router
+from app.api.v1.dashboards import student_router as student_dashboard_router, admin_router as admin_dashboard_router, faculty_router as faculty_dashboard_router
 from app.core.rate_limit import limiter
 
 # NOTE: extraction_router is intentionally NOT registered here.
@@ -53,6 +56,13 @@ app.include_router(resume_router)
 # Phase 3.13 — versioned REST API
 app.include_router(student_resumes_router)
 app.include_router(admin_resumes_router)
+
+# Phase 3.14 — Onboarding & Dashboards
+app.include_router(admin_users_router)
+app.include_router(profile_router)
+app.include_router(student_dashboard_router)
+app.include_router(admin_dashboard_router)
+app.include_router(faculty_dashboard_router)
 
 
 @app.get("/health", tags=["Health"])

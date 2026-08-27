@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import ForeignKey, Numeric, String, func
+from sqlalchemy import Boolean, ForeignKey, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,6 +25,10 @@ class Student(Base):
     branch: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     cgpa: Mapped[Optional[float]] = mapped_column(Numeric(4, 2), nullable=True)
     phone: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    linkedin_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    portfolio_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    profile_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # Fix #2: Removed legacy resume_path (String) — resume storage is handled by ResumeFile model
     placement_status: Mapped[str] = mapped_column(
         String(50), nullable=False, server_default="Not Placed"

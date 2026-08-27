@@ -143,3 +143,29 @@ def require_roles(*allowed_roles: UserRole) -> Callable[[User], User]:
         return current_user
 
     return role_checker
+
+def require_onboarding_completed(current_user: User = Depends(get_current_user)) -> User:
+    """
+    Dependency to ensure the user has completed onboarding.
+    Raises 403 if requires_password_change is True or profile_completed is False.
+    """
+    if current_user.requires_password_change:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Password change required before accessing this resource.",
+        )
+    
+    if current_user.role == UserRole.student:
+        if not current_user.student or not current_user.student.profile_completed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Profile completion required before accessing this resource.",
+            )
+    elif current_user.role == UserRole.faculty:
+        if not current_user.faculty or not current_user.faculty.profile_completed:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Profile completion required before accessing this resource.",
+            )
+            
+    return current_user

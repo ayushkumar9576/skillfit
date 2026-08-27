@@ -27,9 +27,8 @@ from app.core.rate_limit import limiter
 from app.core.security import LOGIN_IP_RATE_LIMIT
 from app.models.user import User
 from app.schemas.auth import (
+    ChangePasswordSchema,
     LoginSchema,
-    RegisterFacultySchema,
-    RegisterStudentSchema,
     TokenSchema,
     UserResponseSchema,
 )
@@ -39,43 +38,21 @@ router = APIRouter(prefix="/auth", tags=["Authentication"])
 
 
 
-@router.post(
-    "/register/student",
-    response_model=UserResponseSchema,
-    status_code=status.HTTP_201_CREATED,
-    summary="Register a new student account",
-    description=(
-        "Creates a User (role=student) and a linked Student profile row. "
-        "Returns the new user's identity data including their registration number."
-    ),
-)
-@limiter.limit("10/hour")
-def register_student(
-    request: Request,
-    data: RegisterStudentSchema,
-    db: Session = Depends(get_db),
-) -> UserResponseSchema:
-    return auth_service.register_student(db, data)
+
+
 
 
 @router.post(
-    "/register/faculty",
-    response_model=UserResponseSchema,
-    status_code=status.HTTP_201_CREATED,
-    summary="Register a new faculty account",
-    description=(
-        "Creates a User (role=faculty) and a linked Faculty profile row. "
-        "Returns the new user's identity data including their registration number."
-    ),
+    "/change-password",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Change user password",
 )
-@limiter.limit("10/hour")
-def register_faculty(
-    request: Request,
-    data: RegisterFacultySchema,
+def change_password(
+    data: ChangePasswordSchema,
     db: Session = Depends(get_db),
-) -> UserResponseSchema:
-    return auth_service.register_faculty(db, data)
-
+    current_user: User = Depends(get_current_user),
+) -> None:
+    auth_service.change_password(db, current_user.id, data.current_password, data.new_password)
 
 
 @router.post(
@@ -140,11 +117,4 @@ def get_me(
     registration_number is now a direct column on User (Stage 1 identity
     refactor) — no role-based branching required.
     """
-    return UserResponseSchema(
-        id=current_user.id,
-        full_name=current_user.full_name,
-        email=current_user.email,
-        role=current_user.role,
-        is_active=current_user.is_active,
-        registration_number=current_user.registration_number,
-    )
+    return auth_service._build_user_response(current_user)

@@ -2,6 +2,7 @@
 import os
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
+from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker, declarative_base
 
 load_dotenv()
@@ -19,6 +20,11 @@ _is_postgres = DATABASE_URL.startswith("postgresql") or DATABASE_URL.startswith(
 _engine_kwargs = dict(echo=(ENV == "development"), pool_pre_ping=True)
 if _is_postgres:
     _engine_kwargs.update(pool_size=5, max_overflow=10)
+else:
+    if "sqlite" in DATABASE_URL:
+        _engine_kwargs["connect_args"] = {"check_same_thread": False}
+        if ":memory:" in DATABASE_URL:
+            _engine_kwargs["poolclass"] = StaticPool
 
 engine = create_engine(DATABASE_URL, **_engine_kwargs)
 
