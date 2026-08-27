@@ -63,8 +63,8 @@ class RegisterStudentSchema(BaseModel):
     )
     registration_number: str = Field(
         ...,
-        max_length=50,
-        description="University-issued registration number. Must be unique across all students.",
+        pattern=r'^\d{8}$',
+        description="University-issued registration number. Must be exactly 8 digits and unique.",
     )
     branch: Optional[str] = Field(
         default=None,
@@ -125,8 +125,8 @@ class RegisterFacultySchema(BaseModel):
     )
     registration_number: str = Field(
         ...,
-        max_length=50,
-        description="University-issued faculty registration number. Must be unique across all faculty.",
+        pattern=r'^\d{8}$',
+        description="University-issued faculty registration number. Must be exactly 8 digits and unique.",
     )
     department: Optional[str] = Field(
         default=None,
@@ -170,6 +170,31 @@ class LoginSchema(BaseModel):
         ...,
         min_length=1,
         description="Account password. Verified against the stored bcrypt hash.",
+    )
+
+
+class AdminResetPasswordSchema(BaseModel):
+    """
+    Payload for POST /api/v1/admin/users/{user_id}/reset-password.
+    Admin provides a new temporary password for the user.
+    """
+    new_password: str = Field(
+        ...,
+        min_length=12,
+        description="New temporary password. Minimum 12 characters.",
+    )
+
+
+class ChangePasswordSchema(BaseModel):
+    """
+    Payload for POST /auth/change-password.
+    Used during onboarding or any time user wants to change their password.
+    """
+    current_password: str = Field(..., description="Current password")
+    new_password: str = Field(
+        ...,
+        min_length=12,
+        description="New password. Minimum 12 characters.",
     )
 
 
@@ -239,4 +264,24 @@ class UserResponseSchema(BaseModel):
             "University-issued registration number. Primary authentication identifier "
             "and business key across all university workflows. Direct column on User."
         ),
+    )
+    requires_password_change: bool = Field(
+        default=False,
+        description="Whether the user needs to change their password before proceeding.",
+    )
+    profile_completed: bool = Field(
+        default=False,
+        description="Whether the user has completed their profile setup.",
+    )
+    linkedin_url: Optional[str] = Field(
+        default=None,
+        description="LinkedIn profile URL (Student only).",
+    )
+    github_url: Optional[str] = Field(
+        default=None,
+        description="GitHub profile URL (Student only).",
+    )
+    portfolio_url: Optional[str] = Field(
+        default=None,
+        description="Personal portfolio URL (Student only).",
     )

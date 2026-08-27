@@ -68,6 +68,19 @@ def _build_user_response(user: User) -> UserResponseSchema:
 
     Called after registration and by /auth/me.
     """
+    profile_completed = False
+    linkedin_url = None
+    github_url = None
+    portfolio_url = None
+
+    if user.role == UserRole.student and user.student:
+        profile_completed = user.student.profile_completed
+        linkedin_url = user.student.linkedin_url
+        github_url = user.student.github_url
+        portfolio_url = user.student.portfolio_url
+    elif user.role == UserRole.faculty and user.faculty:
+        profile_completed = user.faculty.profile_completed
+
     return UserResponseSchema(
         id=user.id,
         full_name=user.full_name,
@@ -75,6 +88,11 @@ def _build_user_response(user: User) -> UserResponseSchema:
         role=user.role,
         is_active=user.is_active,
         registration_number=user.registration_number,
+        requires_password_change=user.requires_password_change,
+        profile_completed=profile_completed,
+        linkedin_url=linkedin_url,
+        github_url=github_url,
+        portfolio_url=portfolio_url,
     )
 
 
@@ -105,9 +123,9 @@ def _check_registration_number_unique(db: Session, registration_number: str) -> 
 # ---------------------------------------------------------------------------
 
 
-def register_student(db: Session, data: RegisterStudentSchema) -> UserResponseSchema:
+def admin_create_student(db: Session, data: RegisterStudentSchema) -> UserResponseSchema:
     """
-    Register a new student account.
+    Register a new student account (Admin only).
 
     Creates a User row (role=student) and a linked Student row atomically.
     registration_number is stored on User (authoritative) AND on Student
@@ -127,6 +145,7 @@ def register_student(db: Session, data: RegisterStudentSchema) -> UserResponseSc
         registration_number=data.registration_number,   # authoritative location
         password_hash=hash_password(data.password),
         role=UserRole.student,
+        requires_password_change=True,
     )
 
     student = Student(
@@ -135,6 +154,7 @@ def register_student(db: Session, data: RegisterStudentSchema) -> UserResponseSc
         branch=data.branch,
         cgpa=data.cgpa,
         phone=data.phone,
+        profile_completed=False,
     )
 
     db.add(user)
@@ -166,9 +186,9 @@ def register_student(db: Session, data: RegisterStudentSchema) -> UserResponseSc
 # ---------------------------------------------------------------------------
 
 
-def register_faculty(db: Session, data: RegisterFacultySchema) -> UserResponseSchema:
+def admin_create_faculty(db: Session, data: RegisterFacultySchema) -> UserResponseSchema:
     """
-    Register a new faculty account.
+    Register a new faculty account (Admin only).
 
     Creates a User row (role=faculty) and a linked Faculty row atomically.
     registration_number is stored on User (authoritative) AND on Faculty
@@ -188,12 +208,14 @@ def register_faculty(db: Session, data: RegisterFacultySchema) -> UserResponseSc
         registration_number=data.registration_number,   # authoritative location
         password_hash=hash_password(data.password),
         role=UserRole.faculty,
+        requires_password_change=True,
     )
 
     faculty = Faculty(
         user=user,
         registration_number=data.registration_number,   # Stage 1: legacy column retained
         department=data.department,
+        profile_completed=False,
     )
 
     db.add(user)
@@ -218,6 +240,55 @@ def register_faculty(db: Session, data: RegisterFacultySchema) -> UserResponseSc
 
     db.refresh(user)
     return _build_user_response(user)
+
+
+# ---------------------------------------------------------------------------
+# Admin Reset Password
+# ---------------------------------------------------------------------------
+
+
+def admin_reset_password(db: Session, user_id: uuid.UUID, new_password: str) -> UserResponseSchema:
+    """
+    Reset a user's password to a new temporary password (Admin only).
+    Sets requires_password_change=True.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="User not found."
+        )
+
+    user.password_hash = hash_password(new_password)
+    user.requires_password_change = True
+    
+    # Also reset login lockouts if any, since admin is resetting
+    user.failed_login_attempts = 0
+    user.locked_until = None
+    
+    db.commit()
+    db.refresh(user)
+    return _build_user_response(user)
+
+
+def change_password(db: Session, user_id: uuid.UUID, current_password: str, new_password: str) -> None:
+    """
+    Change the user's password and clear requires_password_change.
+    """
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+        
+    if not verify_password(current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Incorrect current password")
+        
+    if verify_password(new_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="New password cannot be the same as the current password")
+        
+    user.password_hash = hash_password(new_password)
+    user.requires_password_change = False
+    
+    db.commit()
 
 
 # ---------------------------------------------------------------------------
