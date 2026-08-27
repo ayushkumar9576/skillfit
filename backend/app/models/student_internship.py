@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import ForeignKey, Integer, String, Text, Enum as SQLAlchemyEnum, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+import uuid
 
 from app.db.database import Base
 from app.core.enums import ExperienceStrengthLabel, RecordSource
@@ -14,6 +15,9 @@ class StudentInternship(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     student_id: Mapped[int] = mapped_column(ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True)
+    resume_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resume_files.id", ondelete="CASCADE"), nullable=False, index=True
+    )
 
     company_name: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -34,6 +38,7 @@ class StudentInternship(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now(), nullable=False)
 
     student: Mapped["Student"] = relationship("Student", back_populates="internships")
+    resume_file: Mapped["ResumeFile"] = relationship("ResumeFile", back_populates="internships")
 
     def __repr__(self) -> str:
         return f"<StudentInternship id={self.id} company={self.company_name}>"

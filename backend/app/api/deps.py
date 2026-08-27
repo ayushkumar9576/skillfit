@@ -94,7 +94,13 @@ def get_current_user(
     except JWTError:
         raise credentials_exception
 
-    user: User | None = db.query(User).filter(User.id == user_id).first()
+    import uuid as _uuid
+    try:
+        user_uuid = _uuid.UUID(user_id)
+    except (ValueError, AttributeError):
+        raise credentials_exception
+
+    user: User | None = db.query(User).filter(User.id == user_uuid).first()
 
     if user is None:
         raise credentials_exception

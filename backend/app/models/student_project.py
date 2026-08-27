@@ -2,8 +2,9 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import ForeignKey, Integer, String, Text, Enum as SQLAlchemyEnum, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+import uuid
 
 from app.db.database import Base
 from app.core.enums import ComplexityLabel, TechnicalDepthLabel, RecordSource
@@ -17,6 +18,9 @@ class StudentProject(Base):
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     student_id: Mapped[int] = mapped_column(
         ForeignKey("students.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    resume_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("resume_files.id", ondelete="CASCADE"), nullable=False, index=True
     )
 
     project_name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -42,6 +46,7 @@ class StudentProject(Base):
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now(), nullable=False)
 
     student: Mapped["Student"] = relationship("Student", back_populates="projects")
+    resume_file: Mapped["ResumeFile"] = relationship("ResumeFile", back_populates="projects")
 
     def __repr__(self) -> str:
         return f"<StudentProject id={self.id} name={self.project_name!r}>"

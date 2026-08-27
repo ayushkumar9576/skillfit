@@ -291,7 +291,7 @@ def _build_evidence_text(report: ProjectIntelligenceReport) -> Optional[str]:
     return None
 
 
-def _map_project(student_id: int, report: ProjectIntelligenceReport) -> StudentProject:
+def _map_project(student_id: int, resume_id: uuid.UUID, report: ProjectIntelligenceReport) -> StudentProject:
     """Map one ProjectIntelligenceReport → StudentProject ORM object."""
     complexity_score = report.complexity.overall.score
     depth_score = report.engineering_depth.score
@@ -299,6 +299,7 @@ def _map_project(student_id: int, report: ProjectIntelligenceReport) -> StudentP
 
     return StudentProject(
         student_id=student_id,
+        resume_id=resume_id,
         project_name=(sp.title if sp and sp.title else report.project_title or "Untitled Project")[:255],
         domain=(report.understanding.domain or None),
         description=_build_project_summary(report),
@@ -314,13 +315,14 @@ def _map_project(student_id: int, report: ProjectIntelligenceReport) -> StudentP
     )
 
 
-def _map_internship(student_id: int, report: InternshipIntelligenceReport) -> StudentInternship:
+def _map_internship(student_id: int, resume_id: uuid.UUID, report: InternshipIntelligenceReport) -> StudentInternship:
     """Map one InternshipIntelligenceReport → StudentInternship ORM object."""
     si = report.source_internship
     depth_score = report.technical_depth.score
 
     return StudentInternship(
         student_id=student_id,
+        resume_id=resume_id,
         company_name=(si.organization if si else report.internship_organization or "Unknown")[:255],
         role=(si.role if si else report.internship_role or "Intern")[:255],
         description=(si.description if si else None),
@@ -333,7 +335,7 @@ def _map_internship(student_id: int, report: InternshipIntelligenceReport) -> St
 
 
 def _map_certification(
-    student_id: int, report: CertificationIntelligenceReport
+    student_id: int, resume_id: uuid.UUID, report: CertificationIntelligenceReport
 ) -> Optional[Certification]:
     """Map one CertificationIntelligenceReport → Certification ORM object."""
     sc = report.source_certification
@@ -345,6 +347,7 @@ def _map_certification(
 
     cert = Certification(
         student_id=student_id,
+        resume_id=resume_id,
         name=report.certification_name[:255] or sc.certification_name[:255],
         issuer=sc.issuer[:150] if sc.issuer else "Unknown",
         issue_date=_parse_cert_date(sc.issue_date),
@@ -358,7 +361,7 @@ def _map_certification(
     return cert
 
 
-def _map_skill(student_id: int, profile: SkillProfile) -> StudentSkill:
+def _map_skill(student_id: int, resume_id: uuid.UUID, profile: SkillProfile) -> StudentSkill:
     """Map one SkillProfile → StudentSkill ORM object."""
     # confidence_score: float 0.0–1.0 → int 0–100
     conf_int = round(profile.confidence_score * 100)
@@ -377,6 +380,7 @@ def _map_skill(student_id: int, profile: SkillProfile) -> StudentSkill:
 
     return StudentSkill(
         student_id=student_id,
+        resume_id=resume_id,
         skill_name=profile.skill_name[:100],
         confidence_score=conf_int,
         confidence_level=_confidence_level(profile.confidence_level),
@@ -442,9 +446,9 @@ def _map_cv_analysis(
 # ---------------------------------------------------------------------------
 
 
-def _delete_ai_records(db: Session, student_id: int) -> None:
+def _delete_ai_records(db: Session, student_id: int, resume_id: uuid.UUID) -> None:
     """
-    Delete all AI-generated (source='resume') analysis records for a student.
+    Delete all AI-generated (source='resume') analysis records for a specific resume.
 
     Order matters: child tables before parent-like tables to avoid FK conflicts
     if any are added in future. Current schema has no cross-table FKs between
@@ -452,28 +456,29 @@ def _delete_ai_records(db: Session, student_id: int) -> None:
     """
     deleted_projects = (
         db.query(StudentProject)
-        .filter(StudentProject.student_id == student_id, StudentProject.source == _AI_SOURCE)
+        .filter(StudentProject.student_id == student_id, StudentProject.resume_id == resume_id, StudentProject.source == _AI_SOURCE)
         .delete(synchronize_session=False)
     )
     deleted_internships = (
         db.query(StudentInternship)
-        .filter(StudentInternship.student_id == student_id, StudentInternship.source == _AI_SOURCE)
+        .filter(StudentInternship.student_id == student_id, StudentInternship.resume_id == resume_id, StudentInternship.source == _AI_SOURCE)
         .delete(synchronize_session=False)
     )
     deleted_certs = (
         db.query(Certification)
-        .filter(Certification.student_id == student_id, Certification.source == _AI_SOURCE)
+        .filter(Certification.student_id == student_id, Certification.resume_id == resume_id, Certification.source == _AI_SOURCE)
         .delete(synchronize_session=False)
     )
     deleted_skills = (
         db.query(StudentSkill)
-        .filter(StudentSkill.student_id == student_id, StudentSkill.source == _AI_SOURCE)
+        .filter(StudentSkill.student_id == student_id, StudentSkill.resume_id == resume_id, StudentSkill.source == _AI_SOURCE)
         .delete(synchronize_session=False)
     )
     logger.info(
-        "Cleared prior AI analysis for student_id=%s: "
+        "Cleared prior AI analysis for student_id=%s resume_id=%s: "
         "projects=%d internships=%d certs=%d skills=%d",
         student_id,
+        resume_id,
         deleted_projects,
         deleted_internships,
         deleted_certs,
@@ -541,9 +546,9 @@ def persist_analysis_results(
     """
     try:
         # ----------------------------------------------------------------
-        # 1. Delete all prior AI-generated records for this student
+        # 1. Delete all prior AI-generated records for this specific resume
         # ----------------------------------------------------------------
-        _delete_ai_records(db, student_id)
+        _delete_ai_records(db, student_id, resume_id)
         _delete_cv_analysis(db, resume_id)
 
         # ----------------------------------------------------------------
@@ -553,7 +558,7 @@ def persist_analysis_results(
         if project_result and project_result.reports:
             for report in project_result.reports:
                 try:
-                    orm_obj = _map_project(student_id, report)
+                    orm_obj = _map_project(student_id, resume_id, report)
                     db.add(orm_obj)
                     project_count += 1
                 except Exception as exc:
@@ -573,7 +578,7 @@ def persist_analysis_results(
         if internship_result and internship_result.reports:
             for report in internship_result.reports:
                 try:
-                    orm_obj = _map_internship(student_id, report)
+                    orm_obj = _map_internship(student_id, resume_id, report)
                     db.add(orm_obj)
                     internship_count += 1
                 except Exception as exc:
@@ -595,7 +600,7 @@ def persist_analysis_results(
         if certification_result and certification_result.reports:
             for report in certification_result.reports:
                 try:
-                    orm_obj = _map_certification(student_id, report)
+                    orm_obj = _map_certification(student_id, resume_id, report)
                     if orm_obj:
                         db.add(orm_obj)
                         cert_count += 1
@@ -618,7 +623,7 @@ def persist_analysis_results(
         if skill_result and skill_result.skills:
             for profile in skill_result.skills:
                 try:
-                    orm_obj = _map_skill(student_id, profile)
+                    orm_obj = _map_skill(student_id, resume_id, profile)
                     db.add(orm_obj)
                     skill_count += 1
                 except Exception as exc:

@@ -35,7 +35,7 @@ import logging
 import os
 import uuid
 
-from fastapi import BackgroundTasks, HTTPException, UploadFile, status
+from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -149,6 +149,17 @@ def _replace_existing_resume(db: Session, student_id: int, resume_type: ResumeTy
     # Delete physical file first (safe — logs on missing)
     safe_delete_file(existing.file_path)
 
+    # Explicitly delete AI records to ensure no orphans regardless of DB cascade support
+    from app.models.student_project import StudentProject
+    from app.models.student_internship import StudentInternship
+    from app.models.certification import Certification
+    from app.models.student_skill import StudentSkill
+    
+    db.query(StudentProject).filter(StudentProject.resume_id == existing.id).delete(synchronize_session=False)
+    db.query(StudentInternship).filter(StudentInternship.resume_id == existing.id).delete(synchronize_session=False)
+    db.query(Certification).filter(Certification.resume_id == existing.id).delete(synchronize_session=False)
+    db.query(StudentSkill).filter(StudentSkill.resume_id == existing.id).delete(synchronize_session=False)
+
     # Delete database record (cascade will also remove linked cv_analysis)
     db.delete(existing)
     # Flush so the DELETE reaches the DB before the caller's INSERT.
@@ -172,7 +183,6 @@ async def upload_resume(
     file: UploadFile,
     user_id: uuid.UUID,
     resume_type: ResumeType,
-    background_tasks: BackgroundTasks,
 ) -> ResumeResponse:
     """
     Validate, store, and record an uploaded resume file, then trigger the
@@ -195,15 +205,13 @@ async def upload_resume(
         14. Write file to disk.
         15. Create ResumeFile ORM record with processing_status='uploaded'.
         16. Commit transaction.
-        17. Add pipeline background task.
-        18. Return ResumeResponse (upload is immediately successful).
+        17. Return ResumeResponse (upload is immediately successful).
 
     Args:
-        db:               SQLAlchemy session.
-        file:             FastAPI UploadFile object from the multipart form.
-        user_id:          UUID of the authenticated User (from JWT).
-        resume_type:      Category of this resume (generic or specialized).
-        background_tasks: FastAPI BackgroundTasks for deferred pipeline execution.
+        db:          SQLAlchemy session.
+        file:        FastAPI UploadFile object from the multipart form.
+        user_id:     UUID of the authenticated User (from JWT).
+        resume_type: Category of this resume (generic or specialized).
 
     Returns:
         ResumeResponse with the newly created record's metadata.
@@ -253,6 +261,20 @@ async def upload_resume(
                 "Please delete an existing resume before uploading a new one."
             ),
         )
+        
+    if existing_of_type:
+        # Enforce 1 upload per calendar month rule
+        now = datetime.utcnow()
+        if existing_of_type.created_at.year == now.year and existing_of_type.created_at.month == now.month:
+            logger.warning(
+                "Student %s blocked by monthly upload restriction for %s resume.",
+                student.id,
+                resume_type.value,
+            )
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail=f"You can only upload one {resume_type.value} resume per calendar month.",
+            )
 
     # 3. Read bytes (must be done before validation to get size)
     file_bytes = await file.read()
@@ -431,15 +453,9 @@ async def upload_resume(
         len(file_bytes),
     )
 
-    # 17. Trigger automated pipeline as a background task
-    # Import here to avoid circular imports at module load time
-    from app.services.resume_pipeline import process_resume_pipeline
-    background_tasks.add_task(process_resume_pipeline, resume.id)
-    logger.info(
-        "Pipeline background task queued: resume_id=%s", resume.id
-    )
-
-    # 18. Return immediate upload success response
+    # 17. Return immediate upload success response
+    # NOTE: Analysis is no longer triggered automatically.
+    # An Admin must trigger analysis via POST /api/v1/admin/resumes/{id}/analyze
     return ResumeResponse.model_validate(resume)
 
 
@@ -539,6 +555,13 @@ def delete_resume(
     student = _get_student_or_403(db, user_id)
     resume = _get_owned_resume_or_404(db, resume_id, student.id)
 
+    # Guard: cannot delete while analysis is actively running
+    if resume.processing_status == ProcessingStatus.processing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Cannot delete a resume while analysis is running. Please wait for processing to complete.",
+        )
+
     file_path = resume.file_path
     resume_id_log = resume.id
 
@@ -556,3 +579,201 @@ def delete_resume(
         resume_id_log,
         student.id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin – Analysis Trigger
+# ---------------------------------------------------------------------------
+
+
+# Statuses from which analysis may be triggered (without force)
+_TRIGGERABLE_STATUSES = {
+    ProcessingStatus.uploaded,
+    ProcessingStatus.failed,
+}
+
+# Statuses allowed with force=True (reprocess completed resumes)
+_FORCE_TRIGGERABLE_STATUSES = {
+    ProcessingStatus.uploaded,
+    ProcessingStatus.failed,
+    ProcessingStatus.completed,
+}
+
+
+def trigger_resume_analysis(
+    db: Session,
+    resume_id: uuid.UUID,
+    background_tasks,  # fastapi.BackgroundTasks – typed loosely to avoid circular import
+    force: bool = False,
+) -> ResumeFile:
+    """
+    Atomically transition a resume to PROCESSING and enqueue the pipeline.
+
+    Race-condition protection: uses a filtered UPDATE so only one request
+    can successfully claim the processing slot. If the resume is already
+    PROCESSING (or the wrong status for the force flag), raises 409.
+
+    Args:
+        db:               SQLAlchemy session.
+        resume_id:        UUID of the ResumeFile to process.
+        background_tasks: FastAPI BackgroundTasks object (passed from route layer).
+        force:            Allow reprocessing of COMPLETED resumes.
+
+    Returns:
+        The updated ResumeFile record.
+
+    Raises:
+        HTTPException 404 — resume not found.
+        HTTPException 409 — already processing, or status not triggerable.
+    """
+    from sqlalchemy import update as sa_update
+    from app.services.resume_pipeline import process_resume_pipeline
+
+    # Load the resume first to produce a useful 404 or status-based error
+    resume: ResumeFile | None = (
+        db.query(ResumeFile).filter(ResumeFile.id == resume_id).first()
+    )
+    if resume is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Resume not found.",
+        )
+
+    if resume.processing_status == ProcessingStatus.processing:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Resume is already being processed. Duplicate trigger rejected.",
+        )
+
+    allowed = _FORCE_TRIGGERABLE_STATUSES if force else _TRIGGERABLE_STATUSES
+    if resume.processing_status not in allowed:
+        detail = (
+            f"Cannot trigger analysis for a resume with status "
+            f"'{resume.processing_status.value}'. "
+            + ("Add ?force=true to reprocess a completed resume." if not force else "")
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=detail,
+        )
+
+    # Atomic compare-and-swap: only update if status still matches expectation.
+    # This prevents a race where two admin requests both pass the check above.
+    from datetime import datetime, timezone
+    from sqlalchemy import and_
+
+    result = db.execute(
+        sa_update(ResumeFile)
+        .where(
+            and_(
+                ResumeFile.id == resume_id,
+                ResumeFile.processing_status.in_(allowed),
+            )
+        )
+        .values(
+            processing_status=ProcessingStatus.processing,
+            updated_at=datetime.now(timezone.utc),
+        )
+        .execution_options(synchronize_session="fetch")
+    )
+    db.commit()
+
+    if result.rowcount == 0:
+        # Another request won the race — this one loses
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Resume analysis was already triggered by another request.",
+        )
+
+    # Refresh to get updated state
+    db.refresh(resume)
+
+    logger.info(
+        "Analysis queued: resume_id=%s type=%s force=%s",
+        resume_id,
+        resume.resume_type.value,
+        force,
+    )
+
+    # Enqueue the pipeline as a background task
+    background_tasks.add_task(process_resume_pipeline, resume_id)
+
+    return resume
+
+
+def get_pending_resumes(db: Session, skip: int = 0, limit: int = 100) -> list:
+    """
+    Return all resumes awaiting or eligible for admin processing.
+
+    Includes resumes with status: uploaded or failed.
+    Joins to Student and User for name retrieval.
+
+    Returns a list of dicts safe for direct schema construction.
+    """
+    from app.models.student import Student
+    from app.models.user import User
+
+    rows = (
+        db.query(ResumeFile, Student, User)
+        .join(Student, ResumeFile.student_id == Student.id)
+        .join(User, Student.user_id == User.id)
+        .filter(
+            ResumeFile.processing_status.in_([
+                ProcessingStatus.uploaded,
+                ProcessingStatus.failed,
+            ])
+        )
+        .order_by(ResumeFile.created_at.asc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+    return [
+        {
+            "resume_id": r.id,
+            "student_id": s.id,
+            "student_name": u.full_name,
+            "resume_type": r.resume_type,
+            "processing_status": r.processing_status,
+            "upload_date": r.created_at,
+        }
+        for r, s, u in rows
+    ]
+
+
+def get_queue_summary(db: Session) -> dict:
+    """Return count of resumes in each processing state."""
+    from sqlalchemy import func
+
+    rows = (
+        db.query(ResumeFile.processing_status, func.count(ResumeFile.id))
+        .group_by(ResumeFile.processing_status)
+        .all()
+    )
+    counts = {row[0]: row[1] for row in rows}
+    return {
+        "uploaded":   counts.get(ProcessingStatus.uploaded,   0),
+        "processing": counts.get(ProcessingStatus.processing, 0),
+        "completed":  counts.get(ProcessingStatus.completed,  0),
+        "failed":     counts.get(ProcessingStatus.failed,     0),
+    }
+
+
+def get_admin_resume_status(db: Session, resume_id: uuid.UUID) -> ResumeFile:
+    """
+    Load a ResumeFile for Admin status inspection (no ownership check).
+
+    Raises:
+        HTTPException 404 — resume not found.
+    """
+    resume: ResumeFile | None = (
+        db.query(ResumeFile).filter(ResumeFile.id == resume_id).first()
+    )
+    if resume is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Resume not found.",
+        )
+    return resume
+

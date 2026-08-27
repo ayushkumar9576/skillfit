@@ -63,6 +63,18 @@ class ResumeFile(Base):
     cv_analysis: Mapped["CVAnalysis"] = relationship(
         "CVAnalysis", back_populates="resume_file", uselist=False, cascade="all, delete-orphan"
     )
+    projects: Mapped[list["StudentProject"]] = relationship(
+        "StudentProject", back_populates="resume_file", cascade="all, delete-orphan"
+    )
+    internships: Mapped[list["StudentInternship"]] = relationship(
+        "StudentInternship", back_populates="resume_file", cascade="all, delete-orphan"
+    )
+    certifications: Mapped[list["Certification"]] = relationship(
+        "Certification", back_populates="resume_file", cascade="all, delete-orphan"
+    )
+    skills: Mapped[list["StudentSkill"]] = relationship(
+        "StudentSkill", back_populates="resume_file", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         # Deduplication: same student cannot upload identical file content twice.

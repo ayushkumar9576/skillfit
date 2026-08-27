@@ -10,6 +10,8 @@ from slowapi import _rate_limit_exceeded_handler
 
 from app.api.auth import router as auth_router
 from app.api.resume import router as resume_router
+from app.api.v1.student_resumes import router as student_resumes_router
+from app.api.v1.admin_resumes import router as admin_resumes_router
 from app.core.rate_limit import limiter
 
 # NOTE: extraction_router is intentionally NOT registered here.
@@ -20,12 +22,12 @@ from app.core.rate_limit import limiter
 
 app = FastAPI(
     title="SkillFit API",
-    version="3.5.1",
+    version="3.13.0",
     description=(
         "AI-powered student placement intelligence platform. "
-        "Resume processing (extraction, section detection, analysis) runs automatically "
-        "as a background pipeline after upload — students only interact with upload "
-        "and retrieval endpoints."
+        "Resume processing (extraction, section detection, analysis) is triggered manually "
+        "by Admins via POST /api/v1/admin/resumes/{id}/analyze after a student uploads. "
+        "Students view analysis results via GET /api/v1/resumes/{id}/readiness etc."
     ),
 )
 
@@ -44,9 +46,13 @@ app.add_middleware(
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+# Legacy routes (Phase 3.2 – 3.12, kept for backward compatibility)
 app.include_router(auth_router)
 app.include_router(resume_router)
-# extraction_router removed: extraction is now internal-only (Pre-Phase 3.6)
+
+# Phase 3.13 — versioned REST API
+app.include_router(student_resumes_router)
+app.include_router(admin_resumes_router)
 
 
 @app.get("/health", tags=["Health"])
