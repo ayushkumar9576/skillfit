@@ -368,6 +368,14 @@ class ProjectIntelligenceReport:
     """
     project_title: str = ""
     source_project: Optional[ProjectEvidence] = None
+    
+    # Phase 3.12: Domain Intelligence Fields
+    primary_domain: str = ""
+    secondary_domains: List[str] = field(default_factory=list)
+    domain_confidence: float = 0.0
+    domain_signals: List[str] = field(default_factory=list)
+    project_tier: str = ""
+    
     understanding: ProjectUnderstanding = field(default_factory=ProjectUnderstanding)
     architecture: List[ArchitectureFacet] = field(default_factory=list)
     complexity: ComplexityAssessment = field(default_factory=ComplexityAssessment)

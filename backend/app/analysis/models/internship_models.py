@@ -231,6 +231,13 @@ class InternshipIntelligenceReport:
     internship_role: str = ""
     internship_organization: str = ""
     source_internship: Optional[InternshipEvidence] = None
+    
+    # Phase 3.12: Domain Intelligence Fields
+    primary_domain: str = ""
+    secondary_domains: List[str] = field(default_factory=list)
+    domain_confidence: float = 0.0
+    industry_exposure_level: str = ""
+    
     understanding: InternshipUnderstanding = field(default_factory=InternshipUnderstanding)
     technical_depth: ScoredDimension = field(
         default_factory=lambda: ScoredDimension(name="technical_depth")

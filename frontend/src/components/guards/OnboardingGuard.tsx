@@ -21,6 +21,10 @@ export default function OnboardingGuard({ children }: { children: React.ReactNod
         if (pathname !== "/change-password") {
           router.replace("/change-password");
         }
+      } else if (!user.profile_completed && user.role !== "admin") {
+        if (pathname !== "/complete-profile") {
+          router.replace("/complete-profile");
+        }
       }
     }
   }, [isLoading, user, pathname, router]);
@@ -34,7 +38,10 @@ export default function OnboardingGuard({ children }: { children: React.ReactNod
   if (user.requires_password_change && pathname !== "/change-password") {
     return null;
   }
-
+  
+  if (!user.profile_completed && user.role !== "admin" && pathname !== "/complete-profile") {
+    return null;
+  }
 
   return <>{children}</>;
 }

@@ -34,6 +34,7 @@ from app.analysis.models.readiness_models import (
     DEPTH_INTERMEDIATE,
     DEPTH_BEGINNER,
 )
+from app.analysis.utils.scoring import calculate_project_capability_score
 
 logger = logging.getLogger(__name__)
 
@@ -129,20 +130,14 @@ class ReadinessEngine:
             project_raw_scores = []
             
             for report in p_reports:
-                conf = _clamp(report.overall_confidence if getattr(report, "overall_confidence", 0.0) > 0 else 1.0)
+                score_dict = calculate_project_capability_score(report)
                 
-                c_score = getattr(report.complexity.overall, "score", 0.0)
-                d_score = getattr(report.engineering_depth, "score", 0.0)
-                i_score = getattr(report.industry_relevance, "score", 0.0)
-                
-                maturity_class = getattr(report.technical_maturity, "classification", "")
-                m_score = maturity_scores.get(maturity_class.lower(), 20.0)
-                
-                # Internal Project Weights
-                proj_score = (c_score * 0.30) + (d_score * 0.30) + (m_score * 0.25) + (i_score * 0.15)
-                
-                # Apply extraction confidence
-                proj_score = proj_score * conf
+                proj_score = score_dict["final_capability_score"]
+                c_score = score_dict["c_score"]
+                d_score = score_dict["d_score"]
+                i_score = score_dict["i_score"]
+                m_score = score_dict["m_score"]
+                conf = score_dict["confidence"]
                 
                 project_raw_scores.append({
                     "score": proj_score,

@@ -398,6 +398,7 @@ def _map_skill(student_id: int, resume_id: uuid.UUID, profile: SkillProfile) -> 
 def _build_readiness_summary(result: ReadinessAnalysisResult) -> str:
     """Build a human-readable summary string for cv_analysis.summary."""
     sb = result.score_breakdown
+    contributors = sb.project_contributors or {}
     lines = [
         f"Readiness Score: {result.readiness_score:.1f}/100 "
         f"({result.readiness_level.value})",
@@ -405,10 +406,10 @@ def _build_readiness_summary(result: ReadinessAnalysisResult) -> str:
         f"Internships: {sb.internship_score:.1f} | "
         f"Certifications: {sb.certification_score:.1f} | "
         f"Skills: {sb.skill_score:.1f}",
-        f"Project Contributors: Complexity({sb.project_contributors.get('complexity', 0):.1f}), "
-        f"Depth({sb.project_contributors.get('engineering_depth', 0):.1f}), "
-        f"Maturity({sb.project_contributors.get('technical_maturity', 0):.1f}), "
-        f"Industry({sb.project_contributors.get('industry_relevance', 0):.1f})",
+        f"Project Contributors: Complexity({contributors.get('complexity', 0):.1f}), "
+        f"Depth({contributors.get('engineering_depth', 0):.1f}), "
+        f"Maturity({contributors.get('technical_maturity', 0):.1f}), "
+        f"Industry({contributors.get('industry_relevance', 0):.1f})",
         f"Overall Confidence: {result.overall_confidence:.2f}",
     ]
     return "\n".join(lines)
@@ -717,6 +718,12 @@ def persist_analysis_results(
                     source_resume_id=resume_id,
                     primary_domain=candidate_profile_dict.get("primary_domain"),
                     secondary_domains=candidate_profile_dict.get("secondary_domains", []),
+                    domain_tiers=candidate_profile_dict.get("domain_tiers", {}),
+                    domain_scores=candidate_profile_dict.get("domain_scores", {}),
+                    domain_signals=candidate_profile_dict.get("domain_signals", []),
+                    project_tiers=candidate_profile_dict.get("project_tiers", {}),
+                    industry_exposure_levels=candidate_profile_dict.get("industry_exposure_levels", {}),
+                    candidate_primary_domain_confidence=candidate_profile_dict.get("candidate_primary_domain_confidence", 0.0),
                     strongest_skills=candidate_profile_dict.get("strongest_skills", []),
                     soft_skills=candidate_profile_dict.get("soft_skills", []),
                     role_affinities=candidate_profile_dict.get("role_affinities", {}),

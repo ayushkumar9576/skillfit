@@ -18,8 +18,15 @@ class CandidateProfile(Base):
         UUID(as_uuid=True), ForeignKey("resume_files.id", ondelete="SET NULL"), nullable=True, index=True
     )
 
-    primary_domain: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    primary_domain: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     secondary_domains: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    
+    domain_tiers: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    domain_scores: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    domain_signals: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    project_tiers: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    industry_exposure_levels: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
+    candidate_primary_domain_confidence: Mapped[Optional[float]] = mapped_column(Numeric(5, 2), nullable=True)
     
     strongest_skills: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
     soft_skills: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)

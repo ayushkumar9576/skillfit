@@ -61,31 +61,40 @@ Conventions:
 - skills_and_tech[].kind: "tech" for a named technology/tool/language, "skill"
   for a non-technology capability (e.g. "REST API design").
 
+DOMAIN CLASSIFICATION RULES (PHASE 3.12)
+- You must classify the project into exactly one `primary_domain` and a list of `secondary_domains` from this EXACT taxonomy ONLY:
+  FULL_STACK, BACKEND, FRONTEND, MOBILE, MACHINE_LEARNING, MLOPS, DATA_SCIENCE, DATA_ENGINEERING, CLOUD_INFRASTRUCTURE, DEVOPS, CYBERSECURITY, SYSTEMS_ENGINEERING, EMBEDDED_SYSTEMS, OPERATING_SYSTEMS, DISTRIBUTED_SYSTEMS
+- Provide `domain_confidence` (0.0 to 1.0) indicating certainty of the primary classification.
+- Output `domain_signals`: a list of strings for specific capability areas (e.g. "api_design", "model_training").
+- Determine a `project_tier` strictly from: BEGINNER, INTERMEDIATE, ADVANCED, HIGH_IMPACT, EXCEPTIONAL.
+- ANTI-BIAS INSTRUCTION: Do NOT reward the mere presence of technologies like Kubernetes, TensorFlow, React, Docker, or AWS. Evaluate `project_tier` and domains based on problem difficulty, engineering depth, architecture quality, and production sophistication relative to the expectations of the domain.
+
 Report ALL of these areas:
-1.  understanding — purpose, problem_solved, intended_users, domain,
+1.  domain_intelligence — primary_domain, secondary_domains, domain_confidence, domain_signals, project_tier.
+2.  understanding — purpose, problem_solved, intended_users, domain,
     project_type, business_value.
-2.  architecture — one entry per EVIDENCED area from frontend, backend,
+3.  architecture — one entry per EVIDENCED area from frontend, backend,
     database, system_design, each with a narrative assessment. Omit uncovered areas.
-3.  complexity — INDEPENDENT scored facets: overall, backend, frontend, database,
+4.  complexity — INDEPENDENT scored facets: overall, backend, frontend, database,
     system_design, integration, deployment. Never collapse complexity into one
     shallow label. Omit facets with no supporting evidence.
-4.  engineering_depth — how deep and rigorous the engineering is.
-5.  skills_and_tech — ONE entry per genuinely evidenced technology or skill,
+5.  engineering_depth — how deep and rigorous the engineering is.
+6.  skills_and_tech — ONE entry per genuinely evidenced technology or skill,
     carrying BOTH facets: how deeply it was used (depth, sophistication,
     understanding) AND how strongly it is evidenced (status). Never list one twice.
-6.  competencies — demonstrated engineering competencies, each scored.
-7.  industry_relevance — relevance to real industry practice.
-8.  technical_maturity — classification (tiers above) with reasoning.
-9.  evidence_strength — how strong the supporting evidence is overall.
-10. strengths — evidence-backed strong points.
-11. weaknesses — evidence-backed limitations.
-12. missing_evidence — aspects a thorough technical review expects but the resume
+7.  competencies — demonstrated engineering competencies, each scored.
+8.  industry_relevance — relevance to real industry practice.
+9.  technical_maturity — classification (tiers above) with reasoning.
+10. evidence_strength — how strong the supporting evidence is overall.
+11. strengths — evidence-backed strong points.
+12. weaknesses — evidence-backed limitations.
+13. missing_evidence — aspects a thorough technical review expects but the resume
     does not substantiate (aspect, description, impact). The ONE place absences go.
-13. risks — evidence-backed risks or red flags.
-14. hiring_signal — 0-100 for HOW MUCH hiring-relevant technical evidence this
+14. risks — evidence-backed risks or red flags.
+15. hiring_signal — 0-100 for HOW MUCH hiring-relevant technical evidence this
     project provides. NOT a hiring recommendation and NOT a placement score; it
     reflects only the amount and strength of that evidence.
-15. executive_assessment — overall_impression, demonstrates,
+16. executive_assessment — overall_impression, demonstrates,
     does_not_demonstrate, strongest_signals, weakest_signals.
 Also set overall_confidence (0.0-1.0) and any caveats.
 
@@ -100,6 +109,11 @@ markdown, no code fences, no commentary outside the JSON.
 
 Shape (keys are real; values are placeholders — populate every area):
 {{
+  "primary_domain": "BACKEND",
+  "secondary_domains": ["CLOUD_INFRASTRUCTURE"],
+  "domain_confidence": 0.9,
+  "domain_signals": ["api_design"],
+  "project_tier": "ADVANCED",
   "understanding": {{"purpose": "...", "problem_solved": "...", "intended_users": "...", "domain": "...", "project_type": "...", "business_value": "...", "confidence": 0.0, "ev": [1]}},
   "architecture": [{{"area": "backend", "assessment": "...", "score": 0, "confidence": 0.0, "ev": [4]}}],
   "complexity": {{"overall": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}}, "backend": {{"score": 0, "confidence": 0.0, "reasoning": "...", "ev": [4]}}}},

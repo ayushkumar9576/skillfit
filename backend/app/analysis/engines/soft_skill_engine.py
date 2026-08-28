@@ -87,7 +87,7 @@ class SoftSkillEngine:
         # Scan Internships
         for i in internship_reports:
             all_internship_evidences: List[AnalysisEvidence] = []
-            for h in i.source_internship.highlights:
+            for h in i.source_internship.achievements:
                 all_internship_evidences.append(AnalysisEvidence(evidence_text=h, source_section="internships"))
             if i.source_internship.description:
                 all_internship_evidences.append(AnalysisEvidence(evidence_text=i.source_internship.description, source_section="internships"))
