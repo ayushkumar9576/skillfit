@@ -23,6 +23,8 @@ const baseProfileSchema = z.object({
 const studentSchema = baseProfileSchema.extend({
   branch: z.string().min(1, "Branch is required"),
   cgpa: z.coerce.number().min(0).max(10).optional(),
+  graduation_year: z.coerce.number().min(1900).max(2100).optional(),
+  active_backlogs: z.coerce.number().min(0).optional(),
 });
 
 // Faculty specific schema
@@ -117,6 +119,35 @@ export default function CompleteProfileForm() {
                 />
 
                 {errors.cgpa && <p className="mt-1 text-xs text-red-600">{errors.cgpa.message}</p>}
+              </div>
+
+              <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 sm:col-span-2">
+                <div>
+                  <label htmlFor="graduation_year" className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Graduation Year
+                  </label>
+                  <input
+                    id="graduation_year"
+                    type="number"
+                    placeholder="e.g. 2024"
+                    {...register("graduation_year")}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-colors"
+                  />
+                  {errors.graduation_year && <p className="mt-1 text-xs text-red-600">{errors.graduation_year.message}</p>}
+                </div>
+                <div>
+                  <label htmlFor="active_backlogs" className="mb-1.5 block text-sm font-medium text-slate-700">
+                    Active Backlogs
+                  </label>
+                  <input
+                    id="active_backlogs"
+                    type="number"
+                    placeholder="e.g. 0"
+                    {...register("active_backlogs")}
+                    className="w-full rounded-lg border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 focus:border-indigo-400 focus:outline-none focus:ring-2 focus:ring-indigo-100 transition-colors"
+                  />
+                  {errors.active_backlogs && <p className="mt-1 text-xs text-red-600">{errors.active_backlogs.message}</p>}
+                </div>
               </div>
             </>
           ) : (

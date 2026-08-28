@@ -14,7 +14,7 @@ import LoadingState from "@/components/shared/LoadingState";
 import ErrorState from "@/components/shared/ErrorState";
 import EmptyState from "@/components/shared/EmptyState";
 import Card from "@/components/shared/Card";
-import { UploadCloud, Clock, CheckCircle2, TrendingUp, Code2, Briefcase, Award, Zap } from "lucide-react";
+import { UploadCloud, Clock, CheckCircle2, TrendingUp, Code2, Briefcase, Award, Zap, AlertCircle } from "lucide-react";
 import Link from "next/link";
 
 export default function StudentAnalysisPage() {
@@ -28,7 +28,7 @@ export default function StudentAnalysisPage() {
   // Documented Architecture Rule:
   // The backend explicitly guarantees `created_at DESC` ordering in GET /api/v1/resumes.
   // Therefore, index 0 is deterministically the most recently uploaded resume.
-  const activeResume = resumesData?.data?.find(r => r.id === selectedResumeId) || resumesData?.data?.[0];
+  const activeResume = resumesData?.resumes?.find(r => r.id === selectedResumeId) || resumesData?.resumes?.[0];
   const isCompleted = activeResume?.processing_status === "completed";
 
   const results = useQueries({
@@ -76,7 +76,7 @@ export default function StudentAnalysisPage() {
         <EmptyState 
           icon={Clock}
           title="Analysis Pending" 
-          description={`Your resume (${activeResume.filename}) is currently in the queue. Waiting for administrator review and processing.`}
+          description={`Your resume (${activeResume.file_name}) is currently in the queue. Waiting for administrator review and processing.`}
         />
       </div>
     );
@@ -104,10 +104,10 @@ export default function StudentAnalysisPage() {
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold text-slate-900">Resume Analysis</h1>
-          <p className="text-sm text-slate-500 mt-1">Based on your resume: <span className="font-semibold text-slate-700">{activeResume.filename}</span></p>
+          <p className="text-sm text-slate-500 mt-1">Based on your resume: <span className="font-semibold text-slate-700">{activeResume.file_name}</span></p>
         </div>
 
-        {resumesData?.data && resumesData.data.length > 1 && (
+        {resumesData?.resumes && resumesData.resumes.length > 1 && (
           <div className="flex items-center gap-3">
             <label htmlFor="resume-selector" className="text-sm font-medium text-slate-700 shrink-0">Select Resume:</label>
             <select
@@ -116,7 +116,7 @@ export default function StudentAnalysisPage() {
               onChange={(e) => setSelectedResumeId(e.target.value)}
               className="block w-full sm:w-auto rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-900 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer shadow-sm"
             >
-              {resumesData.data.map((resume) => (
+              {resumesData.resumes.map((resume) => (
                 <option key={resume.id} value={resume.id}>
                   {resume.resume_type.charAt(0).toUpperCase() + resume.resume_type.slice(1)} Resume
                 </option>
@@ -133,26 +133,67 @@ export default function StudentAnalysisPage() {
             <div className="bg-indigo-100 p-2 rounded-lg"><TrendingUp className="h-5 w-5 text-indigo-600" /></div>
             <h2 className="text-2xl font-bold text-slate-800">Readiness Assessment</h2>
           </div>
-          <Card className="p-6 md:p-8">
-            <div className="flex flex-col md:flex-row gap-8 items-start">
-              <div className="shrink-0 flex flex-col items-center justify-center p-6 bg-slate-50 rounded-2xl border border-slate-100 min-w-[200px]">
-                <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Level</span>
-                <span className={`text-4xl font-extrabold ${
-                  readinessData?.readiness_level === 'HIGH' ? 'text-emerald-600' : 
-                  readinessData?.readiness_level === 'MEDIUM' ? 'text-amber-500' : 
-                  'text-red-500'
-                }`}>
-                  {readinessData?.readiness_level || "UNKNOWN"}
-                </span>
-              </div>
-              <div className="flex-1 space-y-4">
-                <h3 className="text-lg font-bold text-slate-800">Summary</h3>
-                <p className="text-slate-600 leading-relaxed text-sm md:text-base">
-                  {readinessData?.summary || "No summary available."}
-                </p>
-              </div>
-            </div>
-          </Card>
+          
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+            <Card className="p-6 md:p-8 flex flex-col items-center justify-center bg-slate-50 border-slate-100">
+              <span className="text-sm font-semibold text-slate-500 uppercase tracking-wider mb-2">Readiness Level</span>
+              <span className={`text-4xl font-extrabold ${
+                readinessData?.readiness_level === 'HIGH' ? 'text-emerald-600' : 
+                readinessData?.readiness_level === 'MEDIUM' ? 'text-amber-500' : 
+                'text-red-500'
+              }`}>
+                {readinessData?.readiness_level || "UNKNOWN"}
+              </span>
+            </Card>
+            
+            <Card className="p-6 md:p-8 col-span-1 lg:col-span-2">
+              <h3 className="text-lg font-bold text-slate-800 mb-3">Analysis Summary</h3>
+              <p className="text-slate-600 leading-relaxed text-sm md:text-base">
+                {readinessData?.summary?.split('\n')[0] || "No summary available."}
+              </p>
+              <p className="text-slate-600 leading-relaxed text-sm md:text-base mt-2">
+                {readinessData?.readiness_explanation || ""}
+              </p>
+            </Card>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <Card className="p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" /> Key Strengths
+              </h3>
+              {readinessData?.strengths?.items?.length > 0 ? (
+                <ul className="space-y-4">
+                  {readinessData.strengths.items.map((strength: {title: string; description: string;}, idx: number) => (
+                    <li key={idx} className="flex flex-col gap-1">
+                      <span className="text-sm font-semibold text-slate-900">{strength.title}</span>
+                      <span className="text-sm text-slate-600">{strength.description}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500 italic">No notable strengths identified.</p>
+              )}
+            </Card>
+            
+            <Card className="p-6">
+              <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                <AlertCircle className="h-5 w-5 text-amber-500" /> Critical Gaps
+              </h3>
+              {readinessData?.weaknesses?.items?.length > 0 ? (
+                <ul className="space-y-4">
+                  {readinessData.weaknesses.items.map((gap: {title: string; description: string;}, idx: number) => (
+                    <li key={idx} className="flex flex-col gap-1">
+                      <span className="text-sm font-semibold text-slate-900">{gap.title}</span>
+                      <span className="text-sm text-slate-600">{gap.description}</span>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-slate-500 italic">No notable gaps identified.</p>
+              )}
+            </Card>
+          </div>
         </section>
 
         {/* 2. Skills Analysis */}

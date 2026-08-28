@@ -42,6 +42,8 @@ def complete_profile(
         student.linkedin_url = str(data.linkedin_url) if data.linkedin_url else None
         student.github_url = str(data.github_url) if data.github_url else None
         student.portfolio_url = str(data.portfolio_url) if data.portfolio_url else None
+        student.graduation_year = data.graduation_year
+        student.active_backlogs = data.active_backlogs
         student.profile_completed = True
 
     elif current_user.role == UserRole.faculty:

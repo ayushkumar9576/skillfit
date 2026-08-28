@@ -516,10 +516,40 @@ def _stage_readiness_engine(db: Session, resume: ResumeFile) -> bool:
         return False
 
 
-def _stage_llm_integration(_db: Session, _resume: ResumeFile) -> bool:
-    """[Phase 3.6 placeholder] LLM Integration Layer — not yet implemented."""
-    logger.debug("Pipeline Stage 8 (LLM integration) — placeholder, skipping.")
-    return True
+def _stage_synthesis_engine(db: Session, resume: ResumeFile) -> bool:
+    """
+    Stage 8 — Synthesis Engine (Phase 3.X).
+    Aggregates upstream analysis to synthesize the Candidate Profile.
+    """
+    try:
+        from app.analysis.engines.synthesis_engine import SynthesisEngine
+        
+        project_result = getattr(resume, "_temp_project_result", None)
+        internship_result = getattr(resume, "_temp_internship_result", None)
+        certification_result = getattr(resume, "_temp_certification_result", None)
+        skill_result = getattr(resume, "_temp_skill_result", None)
+        
+        if not skill_result:
+            logger.warning("Pipeline Stage 8 (synthesis) skipped — missing skill_result")
+            return True
+            
+        engine = SynthesisEngine()
+        profile_dict = engine.synthesize(
+            tech_skills=skill_result,
+            project_reports=project_result.reports if project_result else [],
+            internship_reports=internship_result.reports if internship_result else [],
+            certification_reports=certification_result.reports if certification_result else []
+        )
+        
+        setattr(resume, "_temp_candidate_profile", profile_dict)
+        return True
+    except Exception as exc:
+        logger.error(
+            "Pipeline Stage 8 (synthesis) FAILED: resume_id=%s error=%s",
+            resume.id,
+            exc,
+        )
+        return False
 
 
 def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:
@@ -542,6 +572,7 @@ def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:
     certification_result = getattr(resume, "_temp_certification_result", None)
     skill_result = getattr(resume, "_temp_skill_result", None)
     readiness_result = getattr(resume, "_temp_readiness_result", None)
+    candidate_profile_dict = getattr(resume, "_temp_candidate_profile", None)
 
     success = persist_analysis_results(
         db=db,
@@ -552,6 +583,7 @@ def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:
         certification_result=certification_result,
         skill_result=skill_result,
         readiness_result=readiness_result,
+        candidate_profile_dict=candidate_profile_dict,
     )
 
     if success:
@@ -615,7 +647,7 @@ def process_resume_pipeline(resume_id: uuid.UUID) -> None:
             ("Stage 5: Certification Analysis", _stage_certification_analysis),
             ("Stage 6: Skill Analysis",         _stage_skill_analysis),
             ("Stage 7: Readiness Engine",       _stage_readiness_engine),
-            ("Stage 8: LLM Integration",        _stage_llm_integration),
+            ("Stage 8: Synthesis Engine",       _stage_synthesis_engine),
             ("Stage 9: Analysis Persistence",   _stage_persist_analysis),
         ]
 

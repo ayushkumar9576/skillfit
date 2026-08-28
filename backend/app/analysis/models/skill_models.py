@@ -30,6 +30,7 @@ class SkillProfile:
     source_count: int
     skill_depth: str
     hiring_signal: str
+    skill_type: str = "technical"
     evidences: List[SkillEvidenceSource] = field(default_factory=list)
 
 

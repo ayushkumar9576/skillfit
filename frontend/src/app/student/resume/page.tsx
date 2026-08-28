@@ -166,7 +166,7 @@ export default function StudentResumePage() {
               <div className="p-6">
                 <ErrorState message="Could not fetch resumes." retryAction={() => refetch()} />
               </div>
-            ) : resumesData?.data?.length === 0 ? (
+            ) : resumesData?.resumes?.length === 0 ? (
               <div className="p-12 text-center text-slate-500 text-sm">
                 No resumes uploaded yet. Upload your first resume to begin.
               </div>
@@ -182,13 +182,13 @@ export default function StudentResumePage() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {resumesData?.data.map((resume) => (
+                    {resumesData?.resumes?.map((resume) => (
                       <tr key={resume.id} className="bg-white hover:bg-slate-50/50 transition-colors">
                         <td className="px-6 py-4 text-slate-600 whitespace-nowrap">
                           {new Date(resume.created_at).toLocaleDateString()}
                         </td>
-                        <td className="px-6 py-4 font-medium text-slate-900 truncate max-w-[200px]" title={resume.filename}>
-                          {resume.filename}
+                        <td className="px-6 py-4 font-medium text-slate-900 truncate max-w-[200px]" title={resume.file_name}>
+                          {resume.file_name}
                         </td>
                         <td className="px-6 py-4 text-slate-600 capitalize">
                           {resume.resume_type}

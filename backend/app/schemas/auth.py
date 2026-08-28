@@ -285,3 +285,19 @@ class UserResponseSchema(BaseModel):
         default=None,
         description="Personal portfolio URL (Student only).",
     )
+    branch: Optional[str] = Field(
+        default=None,
+        description="Academic branch/stream (Student only).",
+    )
+    cgpa: Optional[float] = Field(
+        default=None,
+        description="Cumulative GPA (Student only).",
+    )
+    phone: Optional[str] = Field(
+        default=None,
+        description="Contact phone number (Student only).",
+    )
+    department: Optional[str] = Field(
+        default=None,
+        description="Academic department (Faculty only).",
+    )

@@ -80,6 +80,7 @@ class ScoreBreakdown:
     internship_score: float
     certification_score: float
     skill_score: float
+    project_contributors: dict = None
 
     def to_dict(self) -> dict:
         return {
@@ -87,6 +88,7 @@ class ScoreBreakdown:
             "internship_score": self.internship_score,
             "certification_score": self.certification_score,
             "skill_score": self.skill_score,
+            "project_contributors": self.project_contributors or {},
         }
 
 

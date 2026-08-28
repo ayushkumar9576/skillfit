@@ -39,8 +39,10 @@ export default function FacultyProfilePage() {
       await updateProfile(data);
       await refreshUser();
       setSuccess(true);
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to update profile.");
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const errorResponse = err as any;
+      setError(errorResponse.response?.data?.detail || "Failed to update profile.");
     } finally {
       setIsSubmitting(false);
     }

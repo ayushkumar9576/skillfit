@@ -46,7 +46,7 @@ export default function StudentDashboardPage() {
     );
   }
 
-  const latestResume = resumesData?.data?.[0];
+  const latestResume = resumesData?.resumes?.[0];
 
   // The backend might return metrics in dashboardData. If none exist, we default.
   // Assuming dashboardData has { skills_count, projects_count, internships_count, certifications_count, readiness_level }
@@ -56,6 +56,25 @@ export default function StudentDashboardPage() {
   return (
     <div className="space-y-8 p-4 sm:p-6 lg:p-8 max-w-6xl mx-auto">
       
+      {/* Reminder Banner */}
+      {!isProfileComplete && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 mb-6 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <UserCircle className="h-6 w-6 text-amber-600" />
+            <div>
+              <h3 className="font-semibold text-amber-800">Complete Your Profile</h3>
+              <p className="text-sm text-amber-700">Please complete your profile to unlock all features and better analysis.</p>
+            </div>
+          </div>
+          <Link 
+            href="/complete-profile" 
+            className="px-4 py-2 bg-amber-600 text-white text-sm font-medium rounded-md hover:bg-amber-700 transition-colors"
+          >
+            Complete Now
+          </Link>
+        </div>
+      )}
+
       {/* 1. Top Section */}
       <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
         <div className="space-y-2">

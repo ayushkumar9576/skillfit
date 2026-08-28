@@ -2,24 +2,20 @@
 
 import Link from "next/link";
 import { Suspense, useEffect } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 import { Zap } from "lucide-react";
 import LoginForm from "@/components/auth/LoginForm";
 import { useAuthContext } from "@/providers/AuthProvider";
 
 function LoginPageContent() {
   const router = useRouter();
-  const searchParams = useSearchParams();
   const { isAuthenticated, isLoading, user } = useAuthContext();
-  const justRegistered = searchParams.get("registered") === "true";
 
   // Redirect authenticated users away from the login page based on onboarding state
   useEffect(() => {
     if (!isLoading && isAuthenticated && user) {
       if (user.requires_password_change) {
         router.replace("/change-password");
-      } else if (user.profile_completed === false) {
-        router.replace("/complete-profile");
       } else {
         router.replace(`/${user.role}/dashboard`);
       }
@@ -45,12 +41,7 @@ function LoginPageContent() {
         <p className="mt-1 text-sm text-slate-500">Sign in to your SkillFit account</p>
       </div>
 
-      {/* Post-registration success message */}
-      {justRegistered && (
-        <div className="mb-5 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-          Account created successfully. You can now sign in.
-        </div>
-      )}
+
 
       <LoginForm />
     </div>

@@ -75,6 +75,9 @@ class ResumeFile(Base):
     skills: Mapped[list["StudentSkill"]] = relationship(
         "StudentSkill", back_populates="resume_file", cascade="all, delete-orphan"
     )
+    candidate_profiles: Mapped[list["CandidateProfile"]] = relationship(
+        "CandidateProfile", back_populates="source_resume", cascade="all, delete-orphan"
+    )
 
     __table_args__ = (
         # Deduplication: same student cannot upload identical file content twice.

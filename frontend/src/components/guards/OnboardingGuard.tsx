@@ -21,10 +21,6 @@ export default function OnboardingGuard({ children }: { children: React.ReactNod
         if (pathname !== "/change-password") {
           router.replace("/change-password");
         }
-      } else if (user.profile_completed === false) {
-        if (pathname !== "/complete-profile") {
-          router.replace("/complete-profile");
-        }
       }
     }
   }, [isLoading, user, pathname, router]);
@@ -38,9 +34,7 @@ export default function OnboardingGuard({ children }: { children: React.ReactNod
   if (user.requires_password_change && pathname !== "/change-password") {
     return null;
   }
-  if (!user.requires_password_change && user.profile_completed === false && pathname !== "/complete-profile") {
-    return null;
-  }
+
 
   return <>{children}</>;
 }

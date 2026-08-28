@@ -19,6 +19,8 @@ import logging
 import os
 from typing import Any, Dict, FrozenSet, Iterable, List, Optional, Sequence, Set, Tuple
 
+from app.analysis.engines.normalization_engine import normalize_skill_name, get_display_name
+
 from app.analysis.models.base import AnalysisEvidence
 from app.analysis.models.internship_models import (
     AssessedPoint,
@@ -110,7 +112,9 @@ def _confidence_band(confidence: float) -> str:
 
 
 def _normalize_name(name: str) -> str:
-    return "".join(ch for ch in name.lower() if ch.isalnum())
+    """Fold a technology/skill name for case- and punctuation-tolerant matching."""
+    norm = normalize_skill_name(name)
+    return "".join(ch for ch in (norm or name).lower() if ch.isalnum())
 
 
 class InternshipAnalysisEngine:
@@ -383,9 +387,15 @@ class InternshipAnalysisEngine:
         grouped: Dict[str, List[str]] = {name: [] for name in _STATUS_TO_LIST.values()}
 
         for entry in entries:
-            name = (entry.name or "").strip()
-            if not name:
+            raw_name = (entry.name or "").strip()
+            if not raw_name:
                 continue
+
+            norm_name = normalize_skill_name(raw_name)
+            if not norm_name:
+                continue
+                
+            name = get_display_name(norm_name)
 
             evidence = self._resolve_refs(entry.ev, index, entry.confidence)
             status = (entry.status or SKILL_UNVERIFIED).strip() or SKILL_UNVERIFIED

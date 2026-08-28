@@ -14,31 +14,7 @@ from app.analysis.models.skill_models import (
 from app.analysis.models.base import AnalysisEvidence
 logger = logging.getLogger(__name__)
 
-SKILL_ALIASES = {
-    "reactjs": "react",
-    "react.js": "react",
-    "react js": "react",
-
-    "nodejs": "node.js",
-    "node": "node.js",
-
-    "js": "javascript",
-    "ts": "typescript",
-
-    "py": "python",
-    "python3": "python",
-
-    "postgres": "postgresql",
-    "mongo": "mongodb",
-    
-    "nextjs": "next.js",
-    "next": "next.js"
-}
-
-INVALID_SKILLS = {
-    "", "n/a", "na", "none", "other", "unknown",
-    ".", "-", "_", "skill", "skills", "technology", "technologies"
-}
+from app.analysis.engines.normalization_engine import normalize_skill_name, get_display_name
 
 def calculate_diversity_score(source_count: int) -> float:
     if source_count >= 3:
@@ -60,24 +36,9 @@ class SkillAnalysisEngine:
     merges skills discovered by upstream engines into a unified profile.
     """
 
-    def normalize_skill_name(self, raw_skill: str) -> str:
-        s = raw_skill.strip().lower()
-        # Remove surrounding punctuation
-        s = s.strip(".,;:|/\\-_{}[]()")
-        # Collapse repeated whitespace
-        s = re.sub(r"\s+", " ", s)
-        # Fallback to avoid empty after stripping
-        if not s:
-            return ""
-        if s in SKILL_ALIASES:
-            s = SKILL_ALIASES[s]
-        return s
-
     def _is_valid_skill(self, raw_skill: str) -> bool:
-        s = self.normalize_skill_name(raw_skill)
-        if not s or s in INVALID_SKILLS:
-            return False
-        return True
+        s = normalize_skill_name(raw_skill)
+        return bool(s)
 
     def analyze(
         self,
@@ -99,7 +60,7 @@ class SkillAnalysisEngine:
         def _add_evidence(skill_name: str, src_type: str, src_name: str, src_id: str, src_conf: float, evs: List[AnalysisEvidence]):
             if not self._is_valid_skill(skill_name):
                 return
-            norm = self.normalize_skill_name(skill_name)
+            norm = normalize_skill_name(skill_name)
             if norm not in extracted_data:
                 extracted_data[norm] = []
             extracted_data[norm].append((src_type, src_name, src_id, src_conf, evs))
@@ -203,11 +164,8 @@ class SkillAnalysisEngine:
             else:
                 hiring_signal = "Low"
 
-            # Construct profile (using Title Case for normalized skill)
-            display_name = norm_skill.title()
-            # Restore specific capitalizations if they match exactly (basic restoration)
-            if display_name.lower() == "node.js": display_name = "Node.js"
-            if display_name.lower() == "javascript": display_name = "JavaScript"
+            # Construct profile (using properly capitalized display name)
+            display_name = get_display_name(norm_skill)
 
             final_skills.append(
                 SkillProfile(

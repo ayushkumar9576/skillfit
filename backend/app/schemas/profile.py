@@ -15,3 +15,5 @@ class ProfileUpdateSchema(BaseModel):
     linkedin_url: Optional[HttpUrl] = Field(None, description="LinkedIn profile URL (Student)")
     github_url: Optional[HttpUrl] = Field(None, description="GitHub profile URL (Student)")
     portfolio_url: Optional[HttpUrl] = Field(None, description="Personal portfolio URL (Student)")
+    graduation_year: Optional[int] = Field(None, ge=1900, le=2100, description="Graduation year (Student)")
+    active_backlogs: Optional[int] = Field(None, ge=0, description="Number of active backlogs (Student)")

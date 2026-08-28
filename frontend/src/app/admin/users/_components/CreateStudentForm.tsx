@@ -42,8 +42,10 @@ export default function CreateStudentForm() {
       await createStudent(payload);
       setSuccess(true);
       reset();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to create student.");
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const errorResponse = err as any;
+      setError(errorResponse.response?.data?.detail || "Failed to create student.");
     } finally {
       setIsSubmitting(false);
     }

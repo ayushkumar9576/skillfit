@@ -70,6 +70,7 @@ from app.models.cv_analysis import CVAnalysis
 from app.models.student_internship import StudentInternship
 from app.models.student_project import StudentProject
 from app.models.student_skill import StudentSkill
+from app.models.candidate_profile import CandidateProfile
 
 logger = logging.getLogger(__name__)
 
@@ -125,13 +126,14 @@ def _confidence_level(level_str: str) -> Optional[ConfidenceLevel]:
     """
     Map analysis confidence_level strings to DB ConfidenceLevel enum.
 
-    Analysis engine uses: "verified", "likely", "uncertain", "cannot_verify"
+    Analysis engine uses: "HIGH", "MEDIUM", "LOW" (from Skill Engine)
+    Also supports legacy: "verified", "likely", "uncertain", "cannot_verify"
     DB uses: "high", "medium", "low"
     """
     level_lower = (level_str or "").lower()
-    if level_lower == "verified":
+    if level_lower in ("verified", "high"):
         return ConfidenceLevel.high
-    if level_lower == "likely":
+    if level_lower in ("likely", "medium"):
         return ConfidenceLevel.medium
     return ConfidenceLevel.low
 
@@ -295,6 +297,8 @@ def _map_project(student_id: int, resume_id: uuid.UUID, report: ProjectIntellige
     """Map one ProjectIntelligenceReport → StudentProject ORM object."""
     complexity_score = report.complexity.overall.score
     depth_score = report.engineering_depth.score
+    maturity_class = report.technical_maturity.classification if report.technical_maturity else None
+    industry_relevance = report.industry_relevance.score if report.industry_relevance else None
     sp = report.source_project
 
     return StudentProject(
@@ -308,6 +312,8 @@ def _map_project(student_id: int, resume_id: uuid.UUID, report: ProjectIntellige
         complexity_label=_complexity_label(complexity_score),
         technical_depth_score=round(depth_score) if depth_score else None,
         technical_depth_label=_technical_depth_label(depth_score),
+        technical_maturity_label=maturity_class,
+        industry_relevance_score=round(industry_relevance) if industry_relevance else None,
         skills_demonstrated=_build_skills_demonstrated(report),
         evidence=_build_evidence_text(report),
         github_url=(sp.project_url if sp else None),
@@ -399,6 +405,10 @@ def _build_readiness_summary(result: ReadinessAnalysisResult) -> str:
         f"Internships: {sb.internship_score:.1f} | "
         f"Certifications: {sb.certification_score:.1f} | "
         f"Skills: {sb.skill_score:.1f}",
+        f"Project Contributors: Complexity({sb.project_contributors.get('complexity', 0):.1f}), "
+        f"Depth({sb.project_contributors.get('engineering_depth', 0):.1f}), "
+        f"Maturity({sb.project_contributors.get('technical_maturity', 0):.1f}), "
+        f"Industry({sb.project_contributors.get('industry_relevance', 0):.1f})",
         f"Overall Confidence: {result.overall_confidence:.2f}",
     ]
     return "\n".join(lines)
@@ -448,7 +458,7 @@ def _map_cv_analysis(
 
 def _delete_ai_records(db: Session, student_id: int, resume_id: uuid.UUID) -> None:
     """
-    Delete all AI-generated (source='resume') analysis records for a specific resume.
+    Delete all AI-generated (source='resume') analysis records for a specific student.
 
     Order matters: child tables before parent-like tables to avoid FK conflicts
     if any are added in future. Current schema has no cross-table FKs between
@@ -456,22 +466,22 @@ def _delete_ai_records(db: Session, student_id: int, resume_id: uuid.UUID) -> No
     """
     deleted_projects = (
         db.query(StudentProject)
-        .filter(StudentProject.student_id == student_id, StudentProject.resume_id == resume_id, StudentProject.source == _AI_SOURCE)
+        .filter(StudentProject.student_id == student_id, StudentProject.source == _AI_SOURCE)
         .delete(synchronize_session=False)
     )
     deleted_internships = (
         db.query(StudentInternship)
-        .filter(StudentInternship.student_id == student_id, StudentInternship.resume_id == resume_id, StudentInternship.source == _AI_SOURCE)
+        .filter(StudentInternship.student_id == student_id, StudentInternship.source == _AI_SOURCE)
         .delete(synchronize_session=False)
     )
     deleted_certs = (
         db.query(Certification)
-        .filter(Certification.student_id == student_id, Certification.resume_id == resume_id, Certification.source == _AI_SOURCE)
+        .filter(Certification.student_id == student_id, Certification.source == _AI_SOURCE)
         .delete(synchronize_session=False)
     )
     deleted_skills = (
         db.query(StudentSkill)
-        .filter(StudentSkill.student_id == student_id, StudentSkill.resume_id == resume_id, StudentSkill.source == _AI_SOURCE)
+        .filter(StudentSkill.student_id == student_id, StudentSkill.source == _AI_SOURCE)
         .delete(synchronize_session=False)
     )
     logger.info(
@@ -503,6 +513,16 @@ def _delete_cv_analysis(db: Session, resume_id: uuid.UUID) -> None:
             "Deleted existing CVAnalysis for resume_id=%s (re-analysis)", resume_id
         )
 
+def _delete_candidate_profile(db: Session, student_id: int) -> None:
+    """Delete existing CandidateProfile for a student to replace it."""
+    deleted = (
+        db.query(CandidateProfile)
+        .filter(CandidateProfile.student_id == student_id)
+        .delete(synchronize_session=False)
+    )
+    if deleted:
+        logger.info("Deleted existing CandidateProfile for student_id=%s", student_id)
+
 
 # ---------------------------------------------------------------------------
 # Public API
@@ -518,6 +538,7 @@ def persist_analysis_results(
     certification_result: Optional[CertificationAnalysisResult],
     skill_result: Optional[SkillAnalysisResult],
     readiness_result: Optional[ReadinessAnalysisResult],
+    candidate_profile_dict: Optional[dict] = None,
 ) -> bool:
     """
     Persist all analysis engine outputs into the database.
@@ -550,6 +571,7 @@ def persist_analysis_results(
         # ----------------------------------------------------------------
         _delete_ai_records(db, student_id, resume_id)
         _delete_cv_analysis(db, resume_id)
+        _delete_candidate_profile(db, student_id)
 
         # ----------------------------------------------------------------
         # 2. Projects
@@ -662,7 +684,57 @@ def persist_analysis_results(
                 return False
 
         # ----------------------------------------------------------------
-        # 7. Flush to detect constraint errors before pipeline commits
+        # 7. Candidate Profile
+        # ----------------------------------------------------------------
+        if candidate_profile_dict:
+            try:
+                from app.models.student import Student
+                student = db.query(Student).filter(Student.id == student_id).first()
+                
+                completeness_score = 20 # For resume uploaded
+                if project_count > 0:
+                    completeness_score += 20
+                if skill_count > 0:
+                    completeness_score += 20
+                if internship_count > 0:
+                    completeness_score += 10
+                if cert_count > 0:
+                    completeness_score += 10
+                if student and student.cgpa:
+                    completeness_score += 10
+                if student and student.graduation_year:
+                    completeness_score += 10
+                    
+                normalized_skills = []
+                if skill_result and skill_result.skills:
+                    normalized_skills = [s.skill_name.lower() for s in skill_result.skills]
+                    
+                r_score = readiness_result.readiness_score if readiness_result else None
+                r_label = readiness_result.readiness_level.value if readiness_result and readiness_result.readiness_level else None
+
+                cp = CandidateProfile(
+                    student_id=student_id,
+                    source_resume_id=resume_id,
+                    primary_domain=candidate_profile_dict.get("primary_domain"),
+                    secondary_domains=candidate_profile_dict.get("secondary_domains", []),
+                    strongest_skills=candidate_profile_dict.get("strongest_skills", []),
+                    soft_skills=candidate_profile_dict.get("soft_skills", []),
+                    role_affinities=candidate_profile_dict.get("role_affinities", {}),
+                    evidence_summary=candidate_profile_dict.get("evidence_summary", {}),
+                    readiness_score=r_score,
+                    readiness_label=r_label,
+                    profile_completeness_score=completeness_score,
+                    normalized_skills=normalized_skills,
+                    analysis_version="3.14" # current phase
+                )
+                db.add(cp)
+                logger.info("Queued CandidateProfile for student_id=%s", student_id)
+            except Exception as exc:
+                logger.error("Failed to map CandidateProfile for student_id=%s: %s", student_id, exc)
+                return False
+
+        # ----------------------------------------------------------------
+        # 8. Flush to detect constraint errors before pipeline commits
         # ----------------------------------------------------------------
         db.flush()
         logger.info(

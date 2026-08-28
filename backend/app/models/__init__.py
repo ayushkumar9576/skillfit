@@ -9,3 +9,4 @@ from app.models.student_project import StudentProject
 from app.models.resume_file import ResumeFile
 from app.models.cv_analysis import CVAnalysis
 from app.models.student_internship import StudentInternship
+from app.models.candidate_profile import CandidateProfile

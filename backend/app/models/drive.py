@@ -2,6 +2,7 @@ from datetime import date, datetime
 from typing import List, Optional
 
 from sqlalchemy import Date, String, Text, func
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.database import Base
@@ -21,6 +22,10 @@ class Drive(Base):
     eligibility_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     application_deadline: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    
+    required_skills: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    preferred_skills: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
+    structured_eligibility: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     # Fix #9: Add updated_at for consistency with all other models

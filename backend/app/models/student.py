@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime
 from typing import List, Optional
 
-from sqlalchemy import Boolean, ForeignKey, Numeric, String, func
+from sqlalchemy import Boolean, ForeignKey, Numeric, String, func, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -28,6 +28,10 @@ class Student(Base):
     linkedin_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
     portfolio_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    graduation_year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    active_backlogs: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    
     profile_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default="false")
     # Fix #2: Removed legacy resume_path (String) — resume storage is handled by ResumeFile model
     placement_status: Mapped[str] = mapped_column(
@@ -65,6 +69,9 @@ class Student(Base):
     )
     cv_analyses: Mapped[List["CVAnalysis"]] = relationship(
         "CVAnalysis", back_populates="student", cascade="all, delete-orphan"
+    )
+    candidate_profile: Mapped[Optional["CandidateProfile"]] = relationship(
+        "CandidateProfile", back_populates="student", uselist=False, cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:

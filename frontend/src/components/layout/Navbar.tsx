@@ -46,16 +46,10 @@ export default function Navbar() {
         {/* Desktop CTA */}
         <div className="hidden items-center gap-3 md:flex">
           <Link
-            href="/login"
-            className="rounded-lg px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors"
+            href="/auth/login"
+            className="rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-indigo-700 transition-colors shadow-sm"
           >
-            Sign In
-          </Link>
-          <Link
-            href="/register"
-            className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors shadow-sm"
-          >
-            Get Started
+            Access Portal
           </Link>
         </div>
 
@@ -95,18 +89,11 @@ export default function Navbar() {
           </Link>
           <div className="mt-2 flex flex-col gap-2 border-t border-slate-100 pt-2">
             <Link
-              href="/login"
-              className="rounded-lg px-3 py-2 text-center text-sm font-medium text-slate-700 hover:bg-slate-100 transition-colors"
-              onClick={() => setIsMenuOpen(false)}
-            >
-              Sign In
-            </Link>
-            <Link
-              href="/register"
+              href="/auth/login"
               className="rounded-lg bg-indigo-600 px-3 py-2 text-center text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
               onClick={() => setIsMenuOpen(false)}
             >
-              Get Started
+              Access Portal
             </Link>
           </div>
         </div>

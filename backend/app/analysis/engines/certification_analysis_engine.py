@@ -20,6 +20,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import ValidationError
 
+from app.analysis.engines.normalization_engine import normalize_skill_name, get_display_name
+
 from app.analysis.models.base import AnalysisEvidence
 from app.analysis.models.certification_models import (
     CertificationAnalysisResult,
@@ -262,8 +264,17 @@ class CertificationAnalysisEngine:
             
         skill_signals = []
         for s in intel.skill_signals:
+            raw_name = (s.name or "").strip()
+            if not raw_name:
+                continue
+            norm_name = normalize_skill_name(raw_name)
+            if not norm_name:
+                continue
+            
+            name = get_display_name(norm_name)
+            
             skill_signals.append(SkillSignal(
-                name=s.name,
+                name=name,
                 confidence=s.confidence,
                 reasoning=s.reasoning,
                 evidence=_hydrate(s.ev)

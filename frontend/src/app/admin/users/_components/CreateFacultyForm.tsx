@@ -36,8 +36,10 @@ export default function CreateFacultyForm() {
       await createFaculty(data);
       setSuccess(true);
       reset();
-    } catch (err: any) {
-      setError(err.response?.data?.detail || "Failed to create faculty.");
+    } catch (err) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const errorResponse = err as any;
+      setError(errorResponse.response?.data?.detail || "Failed to create faculty.");
     } finally {
       setIsSubmitting(false);
     }

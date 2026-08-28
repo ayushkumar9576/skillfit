@@ -73,13 +73,24 @@ def _build_user_response(user: User) -> UserResponseSchema:
     github_url = None
     portfolio_url = None
 
+    branch = None
+    cgpa = None
+    phone = None
+    department = None
+
     if user.role == UserRole.student and user.student:
         profile_completed = user.student.profile_completed
         linkedin_url = user.student.linkedin_url
         github_url = user.student.github_url
         portfolio_url = user.student.portfolio_url
+        branch = user.student.branch
+        cgpa = user.student.cgpa
+        phone = user.student.phone
     elif user.role == UserRole.faculty and user.faculty:
         profile_completed = user.faculty.profile_completed
+        department = user.faculty.department
+    elif user.role == UserRole.admin:
+        profile_completed = True
 
     return UserResponseSchema(
         id=user.id,
@@ -93,6 +104,10 @@ def _build_user_response(user: User) -> UserResponseSchema:
         linkedin_url=linkedin_url,
         github_url=github_url,
         portfolio_url=portfolio_url,
+        branch=branch,
+        cgpa=cgpa,
+        phone=phone,
+        department=department,
     )
 
 

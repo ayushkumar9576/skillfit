@@ -53,8 +53,8 @@ def _severity_to_int(severity: Severity) -> int:
 class ReadinessEngine:
     def __init__(self):
         self.weights = {
-            "projects": 0.35,
-            "internships": 0.25,
+            "projects": 0.45,
+            "internships": 0.15,
             "certifications": 0.10,
             "skills": 0.30,
         }
@@ -108,23 +108,71 @@ class ReadinessEngine:
         # 1. Project Score
         project_score = 0.0
         avg_project_conf = 0.0
+        project_contributors = {
+            "complexity": 0.0,
+            "engineering_depth": 0.0,
+            "technical_maturity": 0.0,
+            "industry_relevance": 0.0
+        }
         if p_reports:
-            total_proj_score = 0.0
             total_conf = 0.0
-            for report in p_reports:
-                conf = _clamp(report.hiring_signal.confidence)
-                sig_score = report.hiring_signal.score
-                if sig_score >= 80.0:
-                    signal_str = "HIGH"
-                elif sig_score >= 50.0:
-                    signal_str = "MEDIUM"
-                else:
-                    signal_str = "LOW"
-                signal_weight = HIRING_SIGNAL_WEIGHTS.get(signal_str, 40.0)
-                
-                total_proj_score += 15.0 * (signal_weight / 100.0) * conf
-                total_conf += conf
             
+            # Map maturity to score
+            maturity_scores = {
+                "prototype": 20.0,
+                "academic": 40.0,
+                "portfolio": 60.0,
+                "production_like": 80.0,
+                "industry_level": 100.0,
+            }
+            
+            project_raw_scores = []
+            
+            for report in p_reports:
+                conf = _clamp(report.overall_confidence if getattr(report, "overall_confidence", 0.0) > 0 else 1.0)
+                
+                c_score = getattr(report.complexity.overall, "score", 0.0)
+                d_score = getattr(report.engineering_depth, "score", 0.0)
+                i_score = getattr(report.industry_relevance, "score", 0.0)
+                
+                maturity_class = getattr(report.technical_maturity, "classification", "")
+                m_score = maturity_scores.get(maturity_class.lower(), 20.0)
+                
+                # Internal Project Weights
+                proj_score = (c_score * 0.30) + (d_score * 0.30) + (m_score * 0.25) + (i_score * 0.15)
+                
+                # Apply extraction confidence
+                proj_score = proj_score * conf
+                
+                project_raw_scores.append({
+                    "score": proj_score,
+                    "c_score": c_score,
+                    "d_score": d_score,
+                    "i_score": i_score,
+                    "m_score": m_score,
+                    "conf": conf
+                })
+                total_conf += conf
+                
+            # Sort projects by score descending
+            project_raw_scores.sort(key=lambda x: x["score"], reverse=True)
+            
+            # Apply decayed summation to prevent quantity from beating quality
+            # First project = 1.0x, Second = 0.3x, Third = 0.1x, Rest = 0.0x
+            decay_weights = [1.0, 0.3, 0.1]
+            total_proj_score = 0.0
+            
+            for idx, p_info in enumerate(project_raw_scores):
+                if idx < len(decay_weights):
+                    weight = decay_weights[idx]
+                    total_proj_score += p_info["score"] * weight
+                    
+                    # Accumulate for explainability (normalized to 100 max)
+                    project_contributors["complexity"] += p_info["c_score"] * 0.30 * weight
+                    project_contributors["engineering_depth"] += p_info["d_score"] * 0.30 * weight
+                    project_contributors["technical_maturity"] += p_info["m_score"] * 0.25 * weight
+                    project_contributors["industry_relevance"] += p_info["i_score"] * 0.15 * weight
+
             project_score = _clamp(total_proj_score, 0.0, 100.0)
             avg_project_conf = _clamp(total_conf / len(p_reports))
         elif project_count > 0:
@@ -347,6 +395,7 @@ class ReadinessEngine:
                 internship_score=internship_score,
                 certification_score=certification_score,
                 skill_score=skill_score,
+                project_contributors=project_contributors,
             ),
             strengths=strengths,
             gaps=gaps,

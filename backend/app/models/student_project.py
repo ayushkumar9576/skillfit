@@ -36,6 +36,9 @@ class StudentProject(Base):
     technical_depth_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     technical_depth_label: Mapped[Optional[TechnicalDepthLabel]] = mapped_column(SQLAlchemyEnum(TechnicalDepthLabel), nullable=True)
 
+    technical_maturity_label: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    industry_relevance_score: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
     skills_demonstrated: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     evidence: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     github_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
