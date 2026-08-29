@@ -4,7 +4,7 @@ from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint, func
 from sqlalchemy import Enum as SQLAlchemyEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID, JSONB
-from typing import Optional
+from typing import Optional, List
 from app.db.database import Base
 from app.core.enums import ResumeType, ProcessingStatus
 
@@ -16,6 +16,8 @@ class ResumeFile(Base):
     Phase 3.2  — file storage, validation metadata, deduplication.
     Phase 3.2.1 — security hardening (file_hash unique constraint).
     Pre-3.6   — resume_type (generic/specialized) + processing_status lifecycle.
+    Phase 3.14 — all legacy analysis relationships removed.
+                  candidate_intelligence_snapshots relationship added with cascade.
 
     Business rules:
         - Each student may have at most 1 active resume per resume_type.
@@ -53,37 +55,25 @@ class ResumeFile(Base):
         server_default="uploaded",
     )
 
-    # Fix #3: Use server_default so DB-level inserts (raw SQL, triggers) also get True
     is_active: Mapped[bool] = mapped_column(server_default="true", nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(server_default=func.now(), onupdate=func.now(), nullable=False)
 
+    # Core relationships — Phase 3.14 baseline
     student: Mapped["Student"] = relationship("Student", back_populates="resume_files")
-    cv_analysis: Mapped["CVAnalysis"] = relationship(
-        "CVAnalysis", back_populates="resume_file", uselist=False, cascade="all, delete-orphan"
-    )
-    projects: Mapped[list["StudentProject"]] = relationship(
-        "StudentProject", back_populates="resume_file", cascade="all, delete-orphan"
-    )
-    internships: Mapped[list["StudentInternship"]] = relationship(
-        "StudentInternship", back_populates="resume_file", cascade="all, delete-orphan"
-    )
-    certifications: Mapped[list["Certification"]] = relationship(
-        "Certification", back_populates="resume_file", cascade="all, delete-orphan"
-    )
-    skills: Mapped[list["StudentSkill"]] = relationship(
-        "StudentSkill", back_populates="resume_file", cascade="all, delete-orphan"
-    )
-    candidate_profiles: Mapped[list["CandidateProfile"]] = relationship(
-        "CandidateProfile", back_populates="source_resume", cascade="all, delete-orphan"
+
+    # Phase 3.14: snapshot relationship with cascade-delete
+    candidate_intelligence_snapshots: Mapped[List["CandidateIntelligenceSnapshotModel"]] = relationship(
+        "CandidateIntelligenceSnapshotModel",
+        back_populates="resume_file",
+        cascade="all, delete-orphan",
     )
 
     __table_args__ = (
         # Deduplication: same student cannot upload identical file content twice.
         UniqueConstraint("student_id", "file_hash", name="uq_student_resume_hash"),
         # Type uniqueness: each student may have at most 1 record per resume_type.
-        # This is the database-level enforcement of the 1-generic + 1-specialized rule.
         UniqueConstraint("student_id", "resume_type", name="uq_student_resume_type"),
     )
 

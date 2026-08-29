@@ -149,18 +149,7 @@ def _replace_existing_resume(db: Session, student_id: int, resume_type: ResumeTy
     # Delete physical file first (safe — logs on missing)
     safe_delete_file(existing.file_path)
 
-    # Explicitly delete AI records to ensure no orphans regardless of DB cascade support
-    from app.models.student_project import StudentProject
-    from app.models.student_internship import StudentInternship
-    from app.models.certification import Certification
-    from app.models.student_skill import StudentSkill
-    
-    db.query(StudentProject).filter(StudentProject.resume_id == existing.id).delete(synchronize_session=False)
-    db.query(StudentInternship).filter(StudentInternship.resume_id == existing.id).delete(synchronize_session=False)
-    db.query(Certification).filter(Certification.resume_id == existing.id).delete(synchronize_session=False)
-    db.query(StudentSkill).filter(StudentSkill.resume_id == existing.id).delete(synchronize_session=False)
-
-    # Delete database record (cascade will also remove linked cv_analysis)
+    # Delete database record — FK CASCADE removes linked cv_analysis, snapshots, etc.
     db.delete(existing)
     # Flush so the DELETE reaches the DB before the caller's INSERT.
     # This is critical to avoid unique constraint violation on (student_id, resume_type)
