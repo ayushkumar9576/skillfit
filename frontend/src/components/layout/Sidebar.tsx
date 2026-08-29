@@ -27,6 +27,7 @@ export default function Sidebar({ navigation, onItemClick }: SidebarProps) {
             <ul role="list" className="-mx-2 space-y-1">
               {navigation.map((item) => {
                 const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
+                const Icon = item.icon;
                 return (
                   <li key={item.label}>
                     <Link
@@ -37,6 +38,12 @@ export default function Sidebar({ navigation, onItemClick }: SidebarProps) {
                         ${isActive ? "bg-indigo-50 text-indigo-600" : "text-slate-700 hover:bg-slate-50 hover:text-indigo-600"}
                       `}
                     >
+                      {Icon && (
+                        <Icon
+                          className={`h-6 w-6 shrink-0 ${isActive ? "text-indigo-600" : "text-slate-400 group-hover:text-indigo-600"}`}
+                          aria-hidden="true"
+                        />
+                      )}
                       {item.label}
                     </Link>
                   </li>

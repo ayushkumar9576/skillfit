@@ -504,38 +504,6 @@ def _stage_readiness_engine(db: Session, resume: ResumeFile) -> bool:
 
 
 
-def _stage_synthesis_engine(db: Session, resume: ResumeFile) -> bool:
-    """
-    Stage 8 — Synthesis Engine (Phase 3 Final Hardening).
-    Bridges CandidateIntelligenceProfile → legacy candidate_profile_dict
-    for analysis_persistence_service.py.
-
-    TEMPORARY: Removed when DB persistence sprint introduces
-    CandidateIntelligenceSnapshot-based storage.
-    """
-    try:
-        from app.analysis.engines.synthesis_engine import SynthesisEngine
-
-        profile = getattr(resume, "_temp_intelligence_profile", None)
-        if not profile:
-            logger.warning("Pipeline Stage 8 (synthesis) skipped — no intelligence profile.")
-            return True
-
-        engine = SynthesisEngine()
-        profile_dict = engine.synthesize(profile=profile)
-
-        setattr(resume, "_temp_candidate_profile", profile_dict)
-        logger.info("Pipeline Stage 8 (synthesis) complete: resume_id=%s", resume.id)
-        return True
-    except Exception as exc:
-        logger.error(
-            "Pipeline Stage 8 (synthesis) FAILED: resume_id=%s error=%s",
-            resume.id, exc,
-        )
-        return False
-
-
-
 def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:
     """
     Stage 9 — Analysis Persistence (Phase 3.12).
@@ -556,7 +524,7 @@ def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:
     certification_result = getattr(resume, "_temp_certification_result", None)
     skill_result = getattr(resume, "_temp_skill_result", None)
     readiness_result = getattr(resume, "_temp_readiness_result", None)
-    candidate_profile_dict = getattr(resume, "_temp_candidate_profile", None)
+    intelligence_profile = getattr(resume, "_temp_intelligence_profile", None)
 
     success = persist_analysis_results(
         db=db,
@@ -567,18 +535,18 @@ def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:
         certification_result=certification_result,
         skill_result=skill_result,
         readiness_result=readiness_result,
-        candidate_profile_dict=candidate_profile_dict,
+        intelligence_profile=intelligence_profile,
     )
 
     if success:
         logger.info(
-            "Pipeline Stage 9 (analysis persistence) staged: resume_id=%s student_id=%s",
+            "Pipeline Stage 8 (analysis persistence) staged: resume_id=%s student_id=%s",
             resume.id,
             resume.student_id,
         )
     else:
         logger.error(
-            "Pipeline Stage 9 (analysis persistence) FAILED: resume_id=%s student_id=%s",
+            "Pipeline Stage 8 (analysis persistence) FAILED: resume_id=%s student_id=%s",
             resume.id,
             resume.student_id,
         )
@@ -631,8 +599,7 @@ def process_resume_pipeline(resume_id: uuid.UUID) -> None:
             ("Stage 5: Certification Analysis", _stage_certification_analysis),
             ("Stage 6: Skill Analysis",         _stage_skill_analysis),
             ("Stage 7: Readiness Engine",       _stage_readiness_engine),
-            ("Stage 8: Synthesis Engine",       _stage_synthesis_engine),
-            ("Stage 9: Analysis Persistence",   _stage_persist_analysis),
+            ("Stage 8: Analysis Persistence",   _stage_persist_analysis),
         ]
 
         for stage_name, stage_fn in stages:

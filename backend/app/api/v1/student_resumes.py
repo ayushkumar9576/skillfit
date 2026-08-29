@@ -1,19 +1,26 @@
 """
 app/api/v1/student_resumes.py
 ------------------------------
-Phase 3.13 Student CV Analysis API — all endpoints under /api/v1/resumes.
+Phase 3.13B Student CV Analysis API — all endpoints under /api/v1/resumes.
 
 Endpoints:
-    POST   /api/v1/resumes                           — Upload resume (no pipeline trigger)
-    GET    /api/v1/resumes                           — List own resumes
-    GET    /api/v1/resumes/{resume_id}               — Get single resume metadata
-    DELETE /api/v1/resumes/{resume_id}               — Delete resume (409 if processing)
-    GET    /api/v1/resumes/{resume_id}/readiness     — Readiness score (completed only)
-    GET    /api/v1/resumes/{resume_id}/skills        — Skills (completed only)
-    GET    /api/v1/resumes/{resume_id}/projects      — Projects (completed only)
-    GET    /api/v1/resumes/{resume_id}/internships   — Internships (completed only)
-    GET    /api/v1/resumes/{resume_id}/certifications — Certifications (completed only)
-    GET    /api/v1/resumes/{resume_id}/sections      — Sections, contact stripped (completed only)
+    POST   /api/v1/resumes                            — Upload resume (no pipeline trigger)
+    GET    /api/v1/resumes                            — List own resumes
+    GET    /api/v1/resumes/{resume_id}                — Get single resume metadata
+    DELETE /api/v1/resumes/{resume_id}                — Delete resume (409 if processing)
+    GET    /api/v1/resumes/{resume_id}/readiness      — DEPRECATED. Readiness score from snapshot
+    GET    /api/v1/resumes/{resume_id}/skills         — DEPRECATED. Skills from snapshot
+    GET    /api/v1/resumes/{resume_id}/projects       — DEPRECATED. Projects from snapshot
+    GET    /api/v1/resumes/{resume_id}/internships    — DEPRECATED. Internships from snapshot
+    GET    /api/v1/resumes/{resume_id}/certifications — DEPRECATED. Certifications from snapshot
+    GET    /api/v1/resumes/{resume_id}/sections       — Sections, contact stripped (completed only)
+    GET    /api/v1/resumes/{resume_id}/profile        — Canonical CandidateIntelligenceProfile
+
+Architecture (Phase 3.13B):
+    All deprecated endpoints now derive their data from CandidateIntelligenceProfile
+    loaded via analysis_persistence_service.get_profile(). Zero runtime reads from
+    CVAnalysis, StudentSkill, StudentProject, StudentInternship, or Certification.
+    Response schemas are unchanged to maintain backward compatibility.
 
 Security:
     - All endpoints require UserRole.student via require_roles().
@@ -25,20 +32,25 @@ Security:
 """
 
 import uuid
-from typing import List
+from datetime import datetime, timezone
+from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, Form, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_roles, require_onboarding_completed
-from app.core.enums import ProcessingStatus, ResumeType, UserRole
-from app.models.certification import Certification
-from app.models.cv_analysis import CVAnalysis
+from app.core.enums import (
+    ConfidenceLevel,
+    ComplexityLabel,
+    ExperienceStrengthLabel,
+    ProcessingStatus,
+    ReadinessLevel,
+    ResumeType,
+    TechnicalDepthLabel,
+    UserRole,
+)
 from app.models.resume_file import ResumeFile
 from app.models.student import Student
-from app.models.student_internship import StudentInternship
-from app.models.student_project import StudentProject
-from app.models.student_skill import StudentSkill
 from app.models.user import User
 from app.schemas.resume import ResumeListResponse, ResumeResponse
 from app.schemas.resume_analysis import (
@@ -55,7 +67,7 @@ from app.schemas.resume_analysis import (
     _SAFE_SECTION_KEYS,
 )
 from app.services import resume_service
-from fastapi import HTTPException
+from app.services.analysis_persistence_service import get_profile, get_latest_snapshot
 
 router = APIRouter(prefix="/api/v1/resumes", tags=["Student — Resume & Analysis"])
 
@@ -103,6 +115,56 @@ def _require_completed(resume: ResumeFile) -> None:
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Analysis not yet available.",
         )
+
+
+# ---------------------------------------------------------------------------
+# Internal profile helpers — snapshot-derived data mappers
+# ---------------------------------------------------------------------------
+
+# VerificationStatus → ConfidenceLevel (for backward-compatible skill responses)
+_VERIFICATION_TO_CONFIDENCE = {
+    "STRONGLY_VERIFIED": ConfidenceLevel.high,
+    "VERIFIED": ConfidenceLevel.high,
+    "WEAKLY_VERIFIED": ConfidenceLevel.medium,
+    "UNVERIFIED": ConfidenceLevel.low,
+}
+
+# VerificationStatus → confidence score (0–100)
+_VERIFICATION_TO_SCORE = {
+    "STRONGLY_VERIFIED": 95,
+    "VERIFIED": 80,
+    "WEAKLY_VERIFIED": 55,
+    "UNVERIFIED": 20,
+}
+
+# DemonstrationLevel → TechnicalDepthLabel
+_DEMO_TO_DEPTH = {
+    "ARCHITECTED": TechnicalDepthLabel.expert,
+    "DESIGNED": TechnicalDepthLabel.advanced,
+    "IMPLEMENTED": TechnicalDepthLabel.advanced,
+    "USED": TechnicalDepthLabel.intermediate,
+    "REFERENCED": TechnicalDepthLabel.basic,
+    "CLAIMED": TechnicalDepthLabel.basic,
+}
+
+# DemonstrationLevel → ComplexityLabel
+_DEMO_TO_COMPLEXITY = {
+    "ARCHITECTED": ComplexityLabel.expert,
+    "DESIGNED": ComplexityLabel.advanced,
+    "IMPLEMENTED": ComplexityLabel.advanced,
+    "USED": ComplexityLabel.intermediate,
+    "REFERENCED": ComplexityLabel.beginner,
+    "CLAIMED": ComplexityLabel.beginner,
+}
+
+# OwnershipLevel → ExperienceStrengthLabel
+_OWNERSHIP_TO_STRENGTH = {
+    "LED": ExperienceStrengthLabel.strong,
+    "OWNED": ExperienceStrengthLabel.strong,
+    "IMPLEMENTED": ExperienceStrengthLabel.moderate,
+    "CONTRIBUTED": ExperienceStrengthLabel.moderate,
+    "OBSERVED": ExperienceStrengthLabel.weak,
+}
 
 
 # ---------------------------------------------------------------------------
@@ -204,7 +266,7 @@ def delete_resume(
 
 
 # ---------------------------------------------------------------------------
-# Readiness
+# Readiness (DEPRECATED — derived from CandidateIntelligenceProfile snapshot)
 # ---------------------------------------------------------------------------
 
 
@@ -213,7 +275,12 @@ def delete_resume(
     response_model=ReadinessResponse,
     status_code=status.HTTP_200_OK,
     summary="Get readiness analysis",
-    description="Returns AI-generated readiness score. Only available after analysis completes.",
+    description=(
+        "DEPRECATED. Use GET /{resume_id}/profile instead. "
+        "Returns readiness analysis derived from CandidateIntelligenceProfile snapshot. "
+        "Response schema is unchanged for backward compatibility."
+    ),
+    deprecated=True,
 )
 def get_readiness(
     resume_id: uuid.UUID,
@@ -225,28 +292,68 @@ def get_readiness(
     resume = _get_owned_resume(db, resume_id, student.id)
     _require_completed(resume)
 
-    cv: CVAnalysis | None = (
-        db.query(CVAnalysis).filter(CVAnalysis.resume_id == resume_id).first()
-    )
-    if cv is None:
+    profile = get_profile(db, resume_id)
+    if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Analysis not yet available.",
         )
 
+    # Derive readiness level from profile findings
+    critical_or_high = [f for f in profile.findings if f.severity in ("HIGH", "CRITICAL")]
+    gap_findings = [f for f in profile.findings if f.type == "MISSING_SIGNAL"]
+
+    if not critical_or_high and not gap_findings:
+        readiness_level = ReadinessLevel.placement_ready
+    elif len(critical_or_high) <= 2:
+        readiness_level = ReadinessLevel.moderately_ready
+    else:
+        readiness_level = ReadinessLevel.needs_improvement
+
+    # Build strengths and weaknesses payloads from findings
+    strength_items = [
+        {"title": f.title, "description": f.description}
+        for f in profile.findings
+        if f.type == "STRENGTH"
+    ]
+    weakness_items = [
+        {"title": f.title, "description": f.description}
+        for f in profile.findings
+        if f.type in ("WEAKNESS", "MISSING_SIGNAL")
+    ]
+
+    # Build summary from recommendations
+    rec_titles = [r.title for r in profile.recommendations[:3]]
+    summary_lines = [
+        f"Skills verified: {len(profile.skills)} | Technologies: {len(profile.technologies)}",
+        f"Projects analyzed: {profile.metadata.total_projects_analyzed} | "
+        f"Internships: {profile.metadata.total_internships_analyzed} | "
+        f"Certifications: {profile.metadata.total_certifications_analyzed}",
+    ]
+    if rec_titles:
+        summary_lines.append(f"Top recommendations: {', '.join(rec_titles)}")
+    summary = "\n".join(summary_lines)
+
+    # Readiness explanation from recommendations
+    if profile.recommendations:
+        explanation_parts = [r.title for r in profile.recommendations[:3]]
+        readiness_explanation = "Focus areas: " + "; ".join(explanation_parts)
+    else:
+        readiness_explanation = "Profile is strong. No critical gaps identified."
+
     return ReadinessResponse(
         resume_id=resume_id,
-        readiness_level=cv.readiness_level,
-        readiness_explanation=cv.readiness_explanation,
-        summary=cv.summary,
-        strengths=cv.strengths,
-        weaknesses=cv.weaknesses,
-        analyzed_at=cv.analyzed_at,
+        readiness_level=readiness_level,
+        readiness_explanation=readiness_explanation,
+        summary=summary,
+        strengths={"items": strength_items},
+        weaknesses={"items": weakness_items},
+        analyzed_at=datetime.now(timezone.utc),
     )
 
 
 # ---------------------------------------------------------------------------
-# Skills
+# Skills (DEPRECATED — derived from CandidateIntelligenceProfile snapshot)
 # ---------------------------------------------------------------------------
 
 
@@ -255,7 +362,12 @@ def get_readiness(
     response_model=SkillsListResponse,
     status_code=status.HTTP_200_OK,
     summary="Get skill profiles",
-    description="Returns evidence-based skill assessments. Only available after analysis completes.",
+    description=(
+        "DEPRECATED. Use GET /{resume_id}/profile instead. "
+        "Returns skills derived from CandidateIntelligenceProfile snapshot. "
+        "Response schema is unchanged for backward compatibility."
+    ),
+    deprecated=True,
 )
 def get_skills(
     resume_id: uuid.UUID,
@@ -267,22 +379,47 @@ def get_skills(
     resume = _get_owned_resume(db, resume_id, student.id)
     _require_completed(resume)
 
-    skills = (
-        db.query(StudentSkill)
-        .filter(StudentSkill.resume_id == resume_id)
-        .order_by(StudentSkill.confidence_score.desc())
-        .all()
+    profile = get_profile(db, resume_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not yet available.",
+        )
+
+    skills = sorted(
+        profile.skills,
+        key=lambda s: _VERIFICATION_TO_SCORE.get(s.verification_status, 0),
+        reverse=True,
     )
+
+    skill_responses = [
+        SkillResponse(
+            skill_name=s.skill,
+            confidence_score=_VERIFICATION_TO_SCORE.get(s.verification_status),
+            confidence_level=_VERIFICATION_TO_CONFIDENCE.get(s.verification_status),
+            evidence_sources={
+                "sources": [
+                    {
+                        "source_type": e.source.value if hasattr(e.source, "value") else str(e.source),
+                        "source_name": e.source_id,
+                        "confidence": _VERIFICATION_TO_SCORE.get(s.verification_status, 20) / 100,
+                    }
+                    for e in s.evidence[:3]
+                ]
+            },
+        )
+        for s in skills
+    ]
 
     return SkillsListResponse(
         resume_id=resume_id,
-        skills=[SkillResponse.model_validate(s) for s in skills],
-        total=len(skills),
+        skills=skill_responses,
+        total=len(skill_responses),
     )
 
 
 # ---------------------------------------------------------------------------
-# Projects
+# Projects (DEPRECATED — derived from CandidateIntelligenceProfile snapshot)
 # ---------------------------------------------------------------------------
 
 
@@ -291,7 +428,12 @@ def get_skills(
     response_model=ProjectsListResponse,
     status_code=status.HTTP_200_OK,
     summary="Get project intelligence",
-    description="Returns AI-analyzed project records. Only available after analysis completes.",
+    description=(
+        "DEPRECATED. Use GET /{resume_id}/profile instead. "
+        "Returns projects derived from CandidateIntelligenceProfile snapshot. "
+        "Response schema is unchanged for backward compatibility."
+    ),
+    deprecated=True,
 )
 def get_projects(
     resume_id: uuid.UUID,
@@ -303,22 +445,64 @@ def get_projects(
     resume = _get_owned_resume(db, resume_id, student.id)
     _require_completed(resume)
 
-    projects = (
-        db.query(StudentProject)
-        .filter(StudentProject.resume_id == resume_id)
-        .order_by(StudentProject.complexity_score.desc())
-        .all()
-    )
+    profile = get_profile(db, resume_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not yet available.",
+        )
+
+    # Derive projects from TechnologyIntelligence evidence and metadata
+    # Each unique project-sourced evidence item becomes a project entry
+    seen_projects: dict = {}
+    for tech in profile.technologies:
+        for ev in tech.evidence:
+            src = ev.source.value if hasattr(ev.source, "value") else str(ev.source)
+            if src == "project" and ev.source_id not in seen_projects:
+                depth_label = _DEMO_TO_DEPTH.get(tech.demonstration_level)
+                complexity_label = _DEMO_TO_COMPLEXITY.get(tech.demonstration_level)
+                seen_projects[ev.source_id] = ProjectResponse(
+                    project_name=ev.source_id,
+                    domain=None,
+                    description=ev.quote or f"Project involving {tech.technology}",
+                    tech_stack=tech.technology,
+                    complexity_score=_VERIFICATION_TO_SCORE.get(
+                        profile.skills[0].verification_status if profile.skills else "USED", 60
+                    ),
+                    complexity_label=complexity_label,
+                    technical_depth_score=_VERIFICATION_TO_SCORE.get(
+                        profile.skills[0].verification_status if profile.skills else "USED", 60
+                    ),
+                    technical_depth_label=depth_label,
+                    github_url=None,
+                )
+
+    project_list = list(seen_projects.values())
+
+    # Fall back to one entry per domain if no project evidence found
+    if not project_list:
+        for domain in profile.domains:
+            project_list.append(ProjectResponse(
+                project_name=f"{domain.domain.replace('_', ' ').title()} Project",
+                domain=domain.domain,
+                description=f"Domain expertise demonstrated in {domain.domain}",
+                tech_stack=", ".join(domain.supporting_technologies[:5]),
+                complexity_score=None,
+                complexity_label=None,
+                technical_depth_score=None,
+                technical_depth_label=None,
+                github_url=None,
+            ))
 
     return ProjectsListResponse(
         resume_id=resume_id,
-        projects=[ProjectResponse.model_validate(p) for p in projects],
-        total=len(projects),
+        projects=project_list,
+        total=len(project_list),
     )
 
 
 # ---------------------------------------------------------------------------
-# Internships
+# Internships (DEPRECATED — derived from CandidateIntelligenceProfile snapshot)
 # ---------------------------------------------------------------------------
 
 
@@ -327,7 +511,12 @@ def get_projects(
     response_model=InternshipsListResponse,
     status_code=status.HTTP_200_OK,
     summary="Get internship intelligence",
-    description="Returns AI-analyzed internship records. Only available after analysis completes.",
+    description=(
+        "DEPRECATED. Use GET /{resume_id}/profile instead. "
+        "Returns internships derived from CandidateIntelligenceProfile snapshot. "
+        "Response schema is unchanged for backward compatibility."
+    ),
+    deprecated=True,
 )
 def get_internships(
     resume_id: uuid.UUID,
@@ -339,21 +528,68 @@ def get_internships(
     resume = _get_owned_resume(db, resume_id, student.id)
     _require_completed(resume)
 
-    internships = (
-        db.query(StudentInternship)
-        .filter(StudentInternship.resume_id == resume_id)
-        .all()
-    )
+    profile = get_profile(db, resume_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not yet available.",
+        )
+
+    # Derive internships from TechnologyIntelligence with internship evidence
+    seen_internships: dict = {}
+    for tech in profile.technologies:
+        for ev in tech.evidence:
+            src = ev.source.value if hasattr(ev.source, "value") else str(ev.source)
+            if src == "internship" and ev.source_id not in seen_internships:
+                # Derive strength from highest ownership signal for this source
+                matching_ownership = [
+                    o for o in profile.ownership_signals
+                    if any(
+                        (e.source.value if hasattr(e.source, "value") else str(e.source)) == "internship"
+                        and e.source_id == ev.source_id
+                        for e in o.evidence
+                    )
+                ]
+                ownership_level = matching_ownership[0].ownership_level if matching_ownership else "CONTRIBUTED"
+                strength_label = _OWNERSHIP_TO_STRENGTH.get(ownership_level, ExperienceStrengthLabel.moderate)
+
+                seen_internships[ev.source_id] = InternshipResponse(
+                    company_name=ev.source_id,
+                    role="Intern",
+                    description=ev.quote,
+                    industry=None,
+                    technologies_used={"technologies": [tech.technology]},
+                    experience_strength_score=_OWNERSHIP_TO_STRENGTH_SCORE.get(ownership_level, 60),
+                    experience_strength_label=strength_label,
+                )
+
+    # Enrich internships from workplace_exposure
+    for exposure in profile.workplace_exposure:
+        for ev in exposure.evidence:
+            src = ev.source.value if hasattr(ev.source, "value") else str(ev.source)
+            if src == "internship" and ev.source_id in seen_internships:
+                existing = seen_internships[ev.source_id]
+                seen_internships[ev.source_id] = InternshipResponse(
+                    company_name=existing.company_name,
+                    role=existing.role,
+                    description=f"{existing.description or ''} | {exposure.exposure_type}".strip(" |"),
+                    industry=exposure.exposure_type if not existing.industry else existing.industry,
+                    technologies_used=existing.technologies_used,
+                    experience_strength_score=existing.experience_strength_score,
+                    experience_strength_label=existing.experience_strength_label,
+                )
+
+    internship_list = list(seen_internships.values())
 
     return InternshipsListResponse(
         resume_id=resume_id,
-        internships=[InternshipResponse.model_validate(i) for i in internships],
-        total=len(internships),
+        internships=internship_list,
+        total=len(internship_list),
     )
 
 
 # ---------------------------------------------------------------------------
-# Certifications
+# Certifications (DEPRECATED — derived from CandidateIntelligenceProfile snapshot)
 # ---------------------------------------------------------------------------
 
 
@@ -362,7 +598,12 @@ def get_internships(
     response_model=CertificationsListResponse,
     status_code=status.HTTP_200_OK,
     summary="Get certification assessments",
-    description="Returns AI-analyzed certification records. Only available after analysis completes.",
+    description=(
+        "DEPRECATED. Use GET /{resume_id}/profile instead. "
+        "Returns certifications derived from CandidateIntelligenceProfile snapshot. "
+        "Response schema is unchanged for backward compatibility."
+    ),
+    deprecated=True,
 )
 def get_certifications(
     resume_id: uuid.UUID,
@@ -374,16 +615,30 @@ def get_certifications(
     resume = _get_owned_resume(db, resume_id, student.id)
     _require_completed(resume)
 
-    certs = (
-        db.query(Certification)
-        .filter(Certification.resume_id == resume_id)
-        .all()
-    )
+    profile = get_profile(db, resume_id)
+    if profile is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis not yet available.",
+        )
+
+    cert_responses = [
+        CertificationResponse(
+            name=c.certification_name,
+            issuer=c.category or "Unknown",
+            issue_date=None,
+            credential_url=None,
+            technical_depth_score=None,
+            industry_relevance=c.industry_recognition or None,
+            industry_value=None,
+        )
+        for c in profile.certifications
+    ]
 
     return CertificationsListResponse(
         resume_id=resume_id,
-        certifications=[CertificationResponse.model_validate(c) for c in certs],
-        total=len(certs),
+        certifications=cert_responses,
+        total=len(cert_responses),
     )
 
 
@@ -430,3 +685,52 @@ def get_sections(
         contact_present=contact_present,
         sections=safe_sections,
     )
+
+
+# ---------------------------------------------------------------------------
+# Profile (Phase 3.13) — canonical endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.get(
+    "/{resume_id}/profile",
+    status_code=status.HTTP_200_OK,
+    summary="Get canonical candidate intelligence profile",
+    description=(
+        "Returns the full, canonical CandidateIntelligenceProfile from the latest snapshot. "
+        "This is the primary intelligence endpoint. All deprecated endpoints derive their "
+        "data from this same snapshot."
+    ),
+)
+def get_resume_profile(
+    resume_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(UserRole.student)),
+    _: User = Depends(require_onboarding_completed),
+) -> dict:
+    student = _get_student(db, current_user)
+    resume = _get_owned_resume(db, resume_id, student.id)
+    _require_completed(resume)
+
+    snapshot = get_latest_snapshot(db, resume_id)
+    if not snapshot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Analysis snapshot not found.",
+        )
+
+    # Return the 'profile' dict directly from the snapshot JSON payload
+    return snapshot.profile_json.get("profile", {})
+
+
+# ---------------------------------------------------------------------------
+# Module-level constant — used in get_internships internship strength mapping
+# ---------------------------------------------------------------------------
+
+_OWNERSHIP_TO_STRENGTH_SCORE = {
+    "LED": 85,
+    "OWNED": 80,
+    "IMPLEMENTED": 65,
+    "CONTRIBUTED": 55,
+    "OBSERVED": 35,
+}

@@ -26,7 +26,6 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db, require_roles
 from app.core.enums import ProcessingStatus, UserRole
-from app.models.cv_analysis import CVAnalysis
 from app.models.resume_file import ResumeFile
 from app.models.user import User
 from app.schemas.resume_analysis import (
@@ -39,6 +38,7 @@ from app.schemas.resume_analysis import (
     QueueSummaryResponse,
 )
 from app.services import resume_service
+from app.services.analysis_persistence_service import get_latest_snapshot
 from fastapi import HTTPException
 
 router = APIRouter(prefix="/api/v1/admin/resumes", tags=["Admin — Resume Processing"])
@@ -109,18 +109,16 @@ def resume_status(
 ) -> AdminResumeStatusResponse:
     resume = resume_service.get_admin_resume_status(db, resume_id)
 
-    # Try to load CVAnalysis for analysis_status and analyzed_at
-    cv: CVAnalysis | None = (
-        db.query(CVAnalysis).filter(CVAnalysis.resume_id == resume_id).first()
-    )
+    # Load snapshot for analysis_status and generated_at (Phase 3.13B)
+    snapshot = get_latest_snapshot(db, resume_id)
 
     return AdminResumeStatusResponse(
         resume_id=resume.id,
         student_id=resume.student_id,
         resume_type=resume.resume_type,
         processing_status=resume.processing_status,
-        analysis_status=cv.analysis_status.value if cv else None,
-        analyzed_at=cv.analyzed_at if cv else None,
+        analysis_status="completed" if snapshot else None,
+        analyzed_at=snapshot.generated_at if snapshot else None,
         last_updated=resume.updated_at,
     )
 

@@ -43,7 +43,8 @@ DOMAIN_SKILL_MAPPING = {
 class DomainEngine:
     """
     DEPRECATED (Phase 3.12): Do not use. Domain intelligence is now deterministically
-    synthesized from LLM-extracted primary domains in SynthesisEngine.
+    synthesized from the CandidateIntelligenceAggregator via DomainIntelligence objects.
+    The SynthesisEngine bridge has been removed (Phase 3.13B).
     """
     def analyze(self, skill_result: SkillAnalysisResult) -> Tuple[str, List[Dict[str, Any]]]:
         """

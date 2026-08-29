@@ -1,12 +1,14 @@
 """
 app/api/v1/dashboards.py
 ------------------------
-Dashboard aggregation endpoints for Phase 3.14.
+Dashboard aggregation endpoints — Phase 3.13B.
+
+All intelligence data is now derived from CandidateIntelligenceSnapshot.
+Zero runtime reads from legacy tables (CVAnalysis, StudentSkill, etc.).
 """
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
-from sqlalchemy import func
 
 from app.api.deps import get_current_user, get_db, require_roles, require_onboarding_completed
 from app.core.enums import ProcessingStatus, UserRole
@@ -14,13 +16,9 @@ from app.models.user import User
 from app.models.student import Student
 from app.models.faculty import Faculty
 from app.models.resume_file import ResumeFile
-from app.models.cv_analysis import CVAnalysis
-from app.models.student_skill import StudentSkill
-from app.models.student_project import StudentProject
-from app.models.student_internship import StudentInternship
-from app.models.certification import Certification
 from app.schemas.dashboard import StudentDashboardSchema, AdminDashboardSchema, FacultyDashboardSchema
 from app.services import resume_service
+from app.services.analysis_persistence_service import get_profile
 
 student_router = APIRouter(prefix="/api/v1/student/dashboard", tags=["Dashboards"])
 admin_router = APIRouter(prefix="/api/v1/admin/dashboard", tags=["Dashboards"])
@@ -55,15 +53,30 @@ def get_student_dashboard(
         data["processing_status"] = resume.processing_status.value
 
         if resume.processing_status == ProcessingStatus.completed:
-            data["analysis_available"] = True
-            cv = db.query(CVAnalysis).filter(CVAnalysis.resume_id == resume.id).first()
-            if cv:
-                data["readiness_level"] = cv.readiness_level
-            
-            data["skills_count"] = db.query(StudentSkill).filter(StudentSkill.resume_id == resume.id).count()
-            data["projects_count"] = db.query(StudentProject).filter(StudentProject.resume_id == resume.id).count()
-            data["internships_count"] = db.query(StudentInternship).filter(StudentInternship.resume_id == resume.id).count()
-            data["certifications_count"] = db.query(Certification).filter(Certification.resume_id == resume.id).count()
+            # Load from CandidateIntelligenceSnapshot — zero legacy table reads
+            profile = get_profile(db, resume.id)
+            if profile:
+                data["analysis_available"] = True
+                data["skills_count"] = len(profile.skills)
+                data["projects_count"] = profile.metadata.total_projects_analyzed
+                data["internships_count"] = profile.metadata.total_internships_analyzed
+                data["certifications_count"] = profile.metadata.total_certifications_analyzed
+
+                # Derive readiness level from profile findings
+                critical_or_high = [
+                    f for f in profile.findings
+                    if f.severity in ("HIGH", "CRITICAL")
+                ]
+                gap_findings = [
+                    f for f in profile.findings
+                    if f.type == "MISSING_SIGNAL"
+                ]
+                if not critical_or_high and not gap_findings:
+                    data["readiness_level"] = "placement_ready"
+                elif len(critical_or_high) <= 2:
+                    data["readiness_level"] = "moderately_ready"
+                else:
+                    data["readiness_level"] = "needs_improvement"
 
     return StudentDashboardSchema(**data)
 
