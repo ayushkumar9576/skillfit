@@ -1,26 +1,34 @@
 """
 app/analysis/engines/readiness_engine.py
 ----------------------------------------
-Readiness Engine for SkillFit Phase 3.11.
+Readiness Engine for SkillFit Phase 3 Final Hardening.
 
-Aggregates structured evidence from Projects, Internships, Certifications,
-and Skills to compute a deterministic Placement Readiness score.
+Inputs (Phase 3 Remediation):
+    A populated CandidateIntelligenceProfile — the single source of truth.
+    No longer accepts ProjectAnalysisResult, InternshipAnalysisResult, etc.
+    All scoring is derived from the profile's intelligence objects.
+
+Outputs (unchanged — public contract preserved):
+    ReadinessAnalysisResult with ReadinessLevel and ScoreBreakdown.
+
+Scoring logic:
+    Project score:      Derived from engineering_signals (DEPLOYMENT, TESTING, ARCHITECTURE)
+                        and ownership_signals (OWNED, LED level entries).
+    Internship score:   Derived from workplace_exposure count and ownership depth.
+    Certification score: Derived from certifications (industry_recognition level).
+    Skill score:        Derived from skills (VerificationStatus distribution).
 """
 
 import logging
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from app.analysis.models.project_models import ProjectAnalysisResult
-from app.analysis.models.internship_models import InternshipAnalysisResult
-from app.analysis.models.certification_models import (
-    CertificationAnalysisResult,
-    PROVIDER_HIGH,
-    PROVIDER_MEDIUM,
-    PROVIDER_LOW,
-    PROVIDER_UNKNOWN,
+from app.analysis.models.candidate_profile import (
+    CandidateIntelligenceProfile,
+    EngineeringSignalCategory,
+    OwnershipLevel,
+    VerificationStatus,
 )
-from app.analysis.models.skill_models import SkillAnalysisResult
 from app.analysis.models.readiness_models import (
     ReadinessAnalysisResult,
     ReadinessLevel,
@@ -30,11 +38,7 @@ from app.analysis.models.readiness_models import (
     ReadinessStrength,
     ReadinessGap,
     HIRING_SIGNAL_WEIGHTS,
-    DEPTH_ADVANCED,
-    DEPTH_INTERMEDIATE,
-    DEPTH_BEGINNER,
 )
-from app.analysis.utils.scoring import calculate_project_capability_score
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +55,43 @@ def _severity_to_int(severity: Severity) -> int:
     return 1
 
 
+# ---------------------------------------------------------------------------
+# Ownership level weights (higher ownership = more readiness signal)
+# ---------------------------------------------------------------------------
+_OWNERSHIP_WEIGHTS = {
+    OwnershipLevel.OBSERVED.value: 0.2,
+    OwnershipLevel.CONTRIBUTED.value: 0.4,
+    OwnershipLevel.IMPLEMENTED.value: 0.6,
+    OwnershipLevel.OWNED.value: 0.8,
+    OwnershipLevel.LED.value: 1.0,
+}
+
+# Industry recognition → certification score multiplier
+_RECOGNITION_MULTIPLIERS = {
+    "high": 1.0,
+    "moderate": 0.75,
+    "low": 0.5,
+    "unknown": 0.25,
+    "theory-heavy": 0.4,
+}
+
+# VerificationStatus → skill point contribution
+_SKILL_POINTS = {
+    VerificationStatus.STRONGLY_VERIFIED.value: 15.0,
+    VerificationStatus.VERIFIED.value: 10.0,
+    VerificationStatus.WEAKLY_VERIFIED.value: 5.0,
+    VerificationStatus.UNVERIFIED.value: 1.0,
+}
+
+
 class ReadinessEngine:
+    """
+    Deterministic Placement Readiness scoring engine.
+
+    Consumes a CandidateIntelligenceProfile and outputs a ReadinessAnalysisResult.
+    All scoring is evidence-based and reproducible — no LLM calls.
+    """
+
     def __init__(self):
         self.weights = {
             "projects": 0.45,
@@ -63,218 +103,169 @@ class ReadinessEngine:
     def analyze(
         self,
         resume_id: str,
-        project_result: Optional[ProjectAnalysisResult],
-        internship_result: Optional[InternshipAnalysisResult],
-        certification_result: Optional[CertificationAnalysisResult],
-        skill_result: Optional[SkillAnalysisResult],
+        profile: CandidateIntelligenceProfile,
     ) -> ReadinessAnalysisResult:
+        """
+        Compute a ReadinessAnalysisResult from the CandidateIntelligenceProfile.
+
+        Args:
+            resume_id: The source resume identifier (for tracing).
+            profile:   The fully populated CandidateIntelligenceProfile.
+
+        Returns:
+            ReadinessAnalysisResult with all scoring and gap analysis.
+        """
         try:
-            return self._analyze_internal(
-                resume_id,
-                project_result,
-                internship_result,
-                certification_result,
-                skill_result,
-            )
-        except Exception as exc:
-            logger.exception("Readiness Engine critical failure.")
-            return self._empty_result(
-                resume_id, status=AnalysisStatus.FAILED
-            )
+            return self._analyze_internal(resume_id, profile)
+        except Exception:
+            logger.exception("Readiness Engine critical failure for resume_id=%s", resume_id)
+            return self._empty_result(resume_id, status=AnalysisStatus.FAILED)
 
     def _analyze_internal(
         self,
         resume_id: str,
-        project_result: Optional[ProjectAnalysisResult],
-        internship_result: Optional[InternshipAnalysisResult],
-        certification_result: Optional[CertificationAnalysisResult],
-        skill_result: Optional[SkillAnalysisResult],
+        profile: CandidateIntelligenceProfile,
     ) -> ReadinessAnalysisResult:
-        
+
         status = AnalysisStatus.SUCCESS
+        meta = profile.metadata
 
-        # Handle None inputs safely
-        project_count = project_result.total_projects_count if project_result else 0
-        internship_count = internship_result.total_internships_count if internship_result else 0
-        certification_count = certification_result.total_certifications_count if certification_result else 0
-        skill_count = skill_result.total_skills_count if skill_result else 0
+        # Counts from profile metadata — never requires re-reading raw results
+        project_count = meta.total_projects_analyzed
+        internship_count = meta.total_internships_analyzed
+        certification_count = meta.total_certifications_analyzed
+        skill_count = len(profile.skills)
 
-        p_reports = project_result.reports if project_result and project_result.reports else []
-        i_reports = internship_result.reports if internship_result and internship_result.reports else []
-        c_reports = certification_result.reports if certification_result and certification_result.reports else []
-        s_profiles = skill_result.skills if skill_result and skill_result.skills else []
+        # ── 1. Project Score ──────────────────────────────────────────────────
+        # Derived from engineering signals and ownership signals.
+        # Engineering signals provide evidence of technical practice quality.
+        # Ownership signals indicate individual contribution depth.
 
-
-
-        # 1. Project Score
         project_score = 0.0
-        avg_project_conf = 0.0
         project_contributors = {
-            "complexity": 0.0,
-            "engineering_depth": 0.0,
-            "technical_maturity": 0.0,
-            "industry_relevance": 0.0
+            "architecture": 0.0,
+            "deployment": 0.0,
+            "testing": 0.0,
+            "security": 0.0,
+            "ownership_depth": 0.0,
         }
-        if p_reports:
-            total_conf = 0.0
-            
-            # Map maturity to score
-            maturity_scores = {
-                "prototype": 20.0,
-                "academic": 40.0,
-                "portfolio": 60.0,
-                "production_like": 80.0,
-                "industry_level": 100.0,
-            }
-            
-            project_raw_scores = []
-            
-            for report in p_reports:
-                score_dict = calculate_project_capability_score(report)
-                
-                proj_score = score_dict["final_capability_score"]
-                c_score = score_dict["c_score"]
-                d_score = score_dict["d_score"]
-                i_score = score_dict["i_score"]
-                m_score = score_dict["m_score"]
-                conf = score_dict["confidence"]
-                
-                project_raw_scores.append({
-                    "score": proj_score,
-                    "c_score": c_score,
-                    "d_score": d_score,
-                    "i_score": i_score,
-                    "m_score": m_score,
-                    "conf": conf
-                })
-                total_conf += conf
-                
-            # Sort projects by score descending
-            project_raw_scores.sort(key=lambda x: x["score"], reverse=True)
-            
-            # Apply decayed summation to prevent quantity from beating quality
-            # First project = 1.0x, Second = 0.3x, Third = 0.1x, Rest = 0.0x
-            decay_weights = [1.0, 0.3, 0.1]
-            total_proj_score = 0.0
-            
-            for idx, p_info in enumerate(project_raw_scores):
-                if idx < len(decay_weights):
-                    weight = decay_weights[idx]
-                    total_proj_score += p_info["score"] * weight
-                    
-                    # Accumulate for explainability (normalized to 100 max)
-                    project_contributors["complexity"] += p_info["c_score"] * 0.30 * weight
-                    project_contributors["engineering_depth"] += p_info["d_score"] * 0.30 * weight
-                    project_contributors["technical_maturity"] += p_info["m_score"] * 0.25 * weight
-                    project_contributors["industry_relevance"] += p_info["i_score"] * 0.15 * weight
 
-            project_score = _clamp(total_proj_score, 0.0, 100.0)
-            avg_project_conf = _clamp(total_conf / len(p_reports))
+        eng_signals = [s for s in profile.engineering_signals if s.demonstrated]
+        ownership_sigs = [o for o in profile.ownership_signals if o.evidence]
+
+        if eng_signals or ownership_sigs:
+            # Engineering signal scoring: each demonstrated signal contributes
+            # Category weights (deployment and testing are highest hiring signals)
+            category_weights = {
+                EngineeringSignalCategory.DEPLOYMENT.value: 22.0,
+                EngineeringSignalCategory.ARCHITECTURE.value: 22.0,
+                EngineeringSignalCategory.TESTING.value: 18.0,
+                EngineeringSignalCategory.SECURITY.value: 15.0,
+                EngineeringSignalCategory.MONITORING.value: 12.0,
+                EngineeringSignalCategory.INTEGRATION.value: 10.0,
+            }
+            # Decay: first 3 signals per category count, rest discarded
+            seen_per_category: dict = {}
+            raw_eng_score = 0.0
+            for sig in eng_signals:
+                cat = sig.category
+                seen_per_category[cat] = seen_per_category.get(cat, 0) + 1
+                if seen_per_category[cat] <= 3:
+                    decay = [1.0, 0.5, 0.25][seen_per_category[cat] - 1]
+                    cat_weight = category_weights.get(cat, 8.0)
+                    raw_eng_score += cat_weight * decay
+                    key = cat.lower() if cat.lower() in project_contributors else "architecture"
+                    project_contributors[key] += cat_weight * decay
+
+            # Ownership signal scoring
+            ownership_score = 0.0
+            for sig in ownership_sigs[:5]:  # cap at 5 to prevent quantity bias
+                weight = _OWNERSHIP_WEIGHTS.get(sig.ownership_level, 0.4)
+                ownership_score += 5.0 * weight
+            project_contributors["ownership_depth"] = ownership_score
+
+            project_score = _clamp(raw_eng_score + ownership_score, 0.0, 100.0)
         elif project_count > 0:
-            # Extraction succeeded, but intelligence failed
+            # Projects were detected but produced no signals
             status = AnalysisStatus.PARTIAL
 
-        # 2. Internship Score
+        # ── 2. Internship Score ───────────────────────────────────────────────
+        # Derived from workplace_exposure (breadth) and ownership signals (depth)
+        # anchored to internship source type.
+
         internship_score = 0.0
-        avg_intern_conf = 0.0
-        if i_reports:
-            total_intern_score = 0.0
-            total_conf = 0.0
-            for report in i_reports:
-                conf = _clamp(report.hiring_signal.confidence)
-                sig_score = report.hiring_signal.score
-                if sig_score >= 80.0:
-                    signal_str = "HIGH"
-                elif sig_score >= 50.0:
-                    signal_str = "MEDIUM"
-                else:
-                    signal_str = "LOW"
-                signal_weight = HIRING_SIGNAL_WEIGHTS.get(signal_str, 40.0)
-                
-                total_intern_score += 25.0 * (signal_weight / 100.0) * conf
-                total_conf += conf
-            
-            internship_score = _clamp(total_intern_score, 0.0, 100.0)
-            avg_intern_conf = _clamp(total_conf / len(i_reports))
+        if profile.workplace_exposure:
+            exposure_count = len(profile.workplace_exposure)
+            base = min(exposure_count * 8.0, 60.0)  # Each exposure type = 8 pts, max 60
+
+            # Add ownership depth from internship-sourced signals
+            from app.analysis.models.candidate_profile import IntelligenceSourceType
+            intern_ownership = [
+                o for o in profile.ownership_signals
+                if any(
+                    ev.source == IntelligenceSourceType.INTERNSHIP
+                    for ev in o.evidence
+                )
+            ]
+            for sig in intern_ownership[:3]:
+                weight = _OWNERSHIP_WEIGHTS.get(sig.ownership_level, 0.4)
+                base += 10.0 * weight
+
+            internship_score = _clamp(base, 0.0, 100.0)
         elif internship_count > 0:
             status = AnalysisStatus.PARTIAL
 
-        # 3. Certification Score
+        # ── 3. Certification Score ────────────────────────────────────────────
+        # Derived from certifications (industry_recognition field).
+
         certification_score = 0.0
-        avg_cert_conf = 0.0
-        if c_reports:
+        if profile.certifications:
             total_cert_score = 0.0
-            total_conf = 0.0
-            for report in c_reports:
-                conf = _clamp(report.hiring_signal.confidence if hasattr(report, "hiring_signal") else 1.0)
-                
-                tier = report.provider_tier
-                if tier == PROVIDER_HIGH:
-                    tier_mult = 1.0
-                elif tier == PROVIDER_MEDIUM:
-                    tier_mult = 0.75
-                elif tier == PROVIDER_LOW:
-                    tier_mult = 0.5
-                else:
-                    tier_mult = 0.25
-                
-                total_cert_score += 20.0 * tier_mult * conf
-                total_conf += conf
-            
+            for cert in profile.certifications:
+                rec_lower = (cert.industry_recognition or "unknown").lower()
+                multiplier = _RECOGNITION_MULTIPLIERS.get(rec_lower, 0.25)
+                total_cert_score += 20.0 * multiplier
             certification_score = _clamp(total_cert_score, 0.0, 100.0)
-            avg_cert_conf = _clamp(total_conf / len(c_reports))
         elif certification_count > 0:
             status = AnalysisStatus.PARTIAL
 
-        # 4. Skill Score
+        # ── 4. Skill Score ────────────────────────────────────────────────────
+        # Derived from SkillIntelligence verification_status distribution.
+
         skill_score = 0.0
-        avg_skill_conf = 0.0
-        adv_skills = 0
-        int_skills = 0
-        beg_skills = 0
+        adv_skills = 0    # STRONGLY_VERIFIED
+        int_skills = 0    # VERIFIED
+        beg_skills = 0    # WEAKLY_VERIFIED or lower
         high_signal_skills = 0
         med_signal_skills = 0
         low_signal_skills = 0
-        
-        if s_profiles:
-            total_skill_points = 0.0
-            total_conf = 0.0
-            
-            for profile in s_profiles:
-                conf = _clamp(profile.confidence_score)
-                depth = (profile.skill_depth or "BEGINNER").upper()
-                signal_str = (profile.hiring_signal or "LOW").upper()
-                
-                if depth == DEPTH_ADVANCED:
-                    depth_val = 15.0
+
+        if profile.skills:
+            total_points = 0.0
+            for sk in profile.skills:
+                status_val = sk.verification_status
+                pts = _SKILL_POINTS.get(status_val, 1.0)
+
+                if status_val == VerificationStatus.STRONGLY_VERIFIED.value:
                     adv_skills += 1
-                elif depth == DEPTH_INTERMEDIATE:
-                    depth_val = 8.0
-                    int_skills += 1
-                else:
-                    depth_val = 3.0
-                    beg_skills += 1
-                    
-                if signal_str == "HIGH":
                     high_signal_skills += 1
-                    is_high_signal = True
-                elif signal_str == "MEDIUM":
+                elif status_val == VerificationStatus.VERIFIED.value:
+                    int_skills += 1
+                    high_signal_skills += 1
+                elif status_val == VerificationStatus.WEAKLY_VERIFIED.value:
+                    beg_skills += 1
                     med_signal_skills += 1
-                    is_high_signal = False
                 else:
+                    beg_skills += 1
                     low_signal_skills += 1
-                    is_high_signal = False
-                
-                points = depth_val * conf * (1.0 if is_high_signal else 0.5)
-                total_skill_points += points
-                total_conf += conf
-                
-            skill_score = _clamp(total_skill_points, 0.0, 100.0)
-            avg_skill_conf = _clamp(total_conf / len(s_profiles))
+
+                total_points += pts
+
+            skill_score = _clamp(total_points, 0.0, 100.0)
         elif skill_count > 0:
             status = AnalysisStatus.PARTIAL
 
-        # Final Readiness Calculation
+        # ── Final Readiness Calculation ───────────────────────────────────────
         readiness_score = _clamp(
             (project_score * self.weights["projects"]) +
             (internship_score * self.weights["internships"]) +
@@ -282,7 +273,7 @@ class ReadinessEngine:
             (skill_score * self.weights["skills"]),
             0.0, 100.0
         )
-        
+
         if readiness_score >= 80.0:
             readiness_level = ReadinessLevel.HIGH
         elif readiness_score >= 60.0:
@@ -290,107 +281,104 @@ class ReadinessEngine:
         else:
             readiness_level = ReadinessLevel.LOW
 
-        # Confidence Renormalization
-        active_weight_sum = 0.0
-        weighted_conf_sum = 0.0
+        # Evidence count (total distinct evidence items across all profile objects)
+        evidence_count = sum(len(t.evidence) for t in profile.technologies)
+        evidence_count += sum(len(c.evidence) for c in profile.competencies)
+        evidence_count += sum(len(s.evidence) for s in profile.skills)
 
-        if project_count > 0:
-            active_weight_sum += self.weights["projects"]
-            weighted_conf_sum += (avg_project_conf * self.weights["projects"])
-        if internship_count > 0:
-            active_weight_sum += self.weights["internships"]
-            weighted_conf_sum += (avg_intern_conf * self.weights["internships"])
-        if certification_count > 0:
-            active_weight_sum += self.weights["certifications"]
-            weighted_conf_sum += (avg_cert_conf * self.weights["certifications"])
-        if skill_count > 0:
-            active_weight_sum += self.weights["skills"]
-            weighted_conf_sum += (avg_skill_conf * self.weights["skills"])
-
-        if active_weight_sum > 0:
-            overall_confidence = _clamp(weighted_conf_sum / active_weight_sum)
-        else:
-            overall_confidence = 0.0
-
-        # Evidence Deduplication
-        seen = set()
-        
-        def _add_evidence(evidences):
-            for ev in evidences:
-                key = (ev.source_section, ev.evidence_text, ev.line_number)
-                seen.add(key)
-                
-        if p_reports:
-            for report in p_reports:
-                if report.source_project:
-                    _add_evidence(report.source_project.evidences)
-        if i_reports:
-            for report in i_reports:
-                if report.source_internship:
-                    _add_evidence(report.source_internship.evidences)
-        if c_reports:
-            for report in c_reports:
-                if report.source_certification:
-                    _add_evidence(report.source_certification.evidences)
-        if s_profiles:
-            for profile in s_profiles:
-                for source in profile.evidences:
-                    _add_evidence(source.evidences)
-
-        evidence_count = len(seen)
-
-        # Strengths & Gaps
+        # ── Strengths & Gaps ──────────────────────────────────────────────────
         strengths: List[ReadinessStrength] = []
         gaps: List[ReadinessGap] = []
 
-        # Hard Gap Rules & Diagnostics
         if project_count == 0:
-            gaps.append(ReadinessGap(title="No Projects", severity=Severity.HIGH, reasoning="No project experience detected."))
-        elif len(p_reports) == 0:
-            gaps.append(ReadinessGap(title="Project Analysis Incomplete", severity=Severity.HIGH, reasoning="Projects were extracted but analysis failed."))
-        elif project_score >= 80.0:
-            strengths.append(ReadinessStrength(title="Strong Project Portfolio", evidence_count=len(p_reports), reasoning=f"Demonstrated {len(p_reports)} high-quality projects.", impact_score=project_score * self.weights["projects"]))
+            gaps.append(ReadinessGap(
+                title="No Projects",
+                severity=Severity.HIGH,
+                reasoning="No project experience detected."
+            ))
+        elif not eng_signals and not ownership_sigs:
+            gaps.append(ReadinessGap(
+                title="Weak Project Signals",
+                severity=Severity.HIGH,
+                reasoning="Projects found but yielded no engineering or ownership signals."
+            ))
+        elif project_score >= 70.0:
+            strengths.append(ReadinessStrength(
+                title="Strong Engineering Signal Portfolio",
+                evidence_count=len(eng_signals),
+                reasoning=f"{len(eng_signals)} demonstrated engineering signals across {project_count} project(s).",
+                impact_score=project_score * self.weights["projects"]
+            ))
 
         if internship_count == 0:
-            gaps.append(ReadinessGap(title="No Internships", severity=Severity.MEDIUM, reasoning="No industry internship experience detected."))
-        elif len(i_reports) == 0:
-            gaps.append(ReadinessGap(title="Internship Analysis Incomplete", severity=Severity.MEDIUM, reasoning="Internships were extracted but analysis failed."))
-        elif internship_score >= 80.0:
-            strengths.append(ReadinessStrength(title="Strong Internship Exposure", evidence_count=len(i_reports), reasoning=f"Demonstrated {len(i_reports)} strong industry internships.", impact_score=internship_score * self.weights["internships"]))
+            gaps.append(ReadinessGap(
+                title="No Internships",
+                severity=Severity.MEDIUM,
+                reasoning="No industry internship experience detected."
+            ))
+        elif internship_score >= 70.0:
+            strengths.append(ReadinessStrength(
+                title="Strong Workplace Exposure",
+                evidence_count=len(profile.workplace_exposure),
+                reasoning=f"{len(profile.workplace_exposure)} distinct workplace exposure types demonstrated.",
+                impact_score=internship_score * self.weights["internships"]
+            ))
 
         if certification_count == 0:
-            gaps.append(ReadinessGap(title="No Certifications", severity=Severity.LOW, reasoning="No external certifications detected."))
-        elif len(c_reports) == 0:
-            gaps.append(ReadinessGap(title="Certification Analysis Incomplete", severity=Severity.LOW, reasoning="Certifications were extracted but analysis failed."))
-        elif certification_score >= 80.0:
-            strengths.append(ReadinessStrength(title="Strong Certification Profile", evidence_count=len(c_reports), reasoning=f"Demonstrated {len(c_reports)} highly recognized certifications.", impact_score=certification_score * self.weights["certifications"]))
+            gaps.append(ReadinessGap(
+                title="No Certifications",
+                severity=Severity.LOW,
+                reasoning="No external certifications detected."
+            ))
+        elif certification_score >= 70.0:
+            strengths.append(ReadinessStrength(
+                title="Strong Certification Profile",
+                evidence_count=len(profile.certifications),
+                reasoning=f"{len(profile.certifications)} recognized certification(s).",
+                impact_score=certification_score * self.weights["certifications"]
+            ))
 
         if high_signal_skills == 0 and skill_count > 0:
-            gaps.append(ReadinessGap(title="No High-Confidence Skills", severity=Severity.HIGH, reasoning="No skills passed the high-signal threshold."))
-        
-        if adv_skills >= 3:
-            strengths.append(ReadinessStrength(title="Extensive Advanced Skill Base", evidence_count=adv_skills, reasoning=f"Demonstrated {adv_skills} advanced technical skills.", impact_score=skill_score * self.weights["skills"]))
+            gaps.append(ReadinessGap(
+                title="No Strongly Verified Skills",
+                severity=Severity.HIGH,
+                reasoning="No skills reached VERIFIED or STRONGLY_VERIFIED status."
+            ))
+        elif adv_skills >= 3:
+            strengths.append(ReadinessStrength(
+                title="Extensive Verified Skill Base",
+                evidence_count=adv_skills,
+                reasoning=f"{adv_skills} skills at STRONGLY_VERIFIED status.",
+                impact_score=skill_score * self.weights["skills"]
+            ))
 
-        # Sort and truncate
+        # From profile findings: HIGH/CRITICAL findings become gaps
+        for finding in profile.findings:
+            if finding.severity in ("HIGH", "CRITICAL") and finding.type == "MISSING_SIGNAL":
+                gaps.append(ReadinessGap(
+                    title=finding.title,
+                    severity=Severity.HIGH if finding.severity == "HIGH" else Severity.HIGH,
+                    reasoning=finding.description,
+                ))
+
         strengths.sort(key=lambda s: (-s.impact_score, s.title, -s.evidence_count))
         gaps.sort(key=lambda g: (-_severity_to_int(g.severity), g.title))
-        
         strengths = strengths[:5]
         gaps = gaps[:5]
 
         return ReadinessAnalysisResult(
             resume_id=resume_id,
-            engine_version="3.11.0",
+            engine_version="4.0.0",  # Phase 3 Final Hardening
             analysis_status=status,
             readiness_score=readiness_score,
             readiness_level=readiness_level,
-            overall_confidence=overall_confidence,
+            overall_confidence=1.0,  # Deterministic — no confidence scores
             score_breakdown=ScoreBreakdown(
                 project_score=project_score,
                 internship_score=internship_score,
                 certification_score=certification_score,
                 skill_score=skill_score,
-                project_contributors=project_contributors,
+                project_contributors={k: round(v, 2) for k, v in project_contributors.items()},
             ),
             strengths=strengths,
             gaps=gaps,
@@ -411,7 +399,7 @@ class ReadinessEngine:
     def _empty_result(self, resume_id: str, status: AnalysisStatus) -> ReadinessAnalysisResult:
         return ReadinessAnalysisResult(
             resume_id=resume_id,
-            engine_version="3.11.0",
+            engine_version="4.0.0",
             analysis_status=status,
             readiness_score=0.0,
             readiness_level=ReadinessLevel.LOW,

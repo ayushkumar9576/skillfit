@@ -1,87 +1,116 @@
 """
 app/analysis/engines/affinity_engine.py
 ---------------------------------------
-Determines role affinities deterministically based on skills and domains.
+Role Affinity Engine — Phase 3 Final Hardening.
+
+Determines role affinities deterministically based on the candidate's
+verified skills from CandidateIntelligenceProfile.
+
+Input:  List[SkillIntelligence]   (from profile.skills)
+Output: List[Dict[str, Any]]      (role → confidence, evidence)
+
+Evidence weights now use VerificationStatus to scale confidence, rather
+than the old float confidence_score.
 """
 
-from typing import List, Dict, Any
-from collections import defaultdict
 import logging
+from typing import Any, Dict, List
 
-from app.analysis.models.skill_models import SkillAnalysisResult
+from app.analysis.models.candidate_profile import (
+    SkillIntelligence,
+    VerificationStatus,
+)
 
 logger = logging.getLogger(__name__)
 
-ROLE_MAPPING = {
+# VerificationStatus → confidence weight for role matching
+_STATUS_WEIGHT = {
+    VerificationStatus.STRONGLY_VERIFIED.value: 1.0,
+    VerificationStatus.VERIFIED.value: 0.80,
+    VerificationStatus.WEAKLY_VERIFIED.value: 0.55,
+    VerificationStatus.UNVERIFIED.value: 0.20,
+}
+
+ROLE_MAPPING: Dict[str, Dict[str, List[str]]] = {
     "Machine Learning Engineer": {
         "required": ["Python", "Scikit-Learn", "Tensorflow", "Pytorch", "Machine Learning"],
-        "bonus": ["Aws", "Docker", "Mlflow", "Sql"]
+        "bonus": ["Aws", "Docker", "Mlflow", "Sql"],
     },
     "Data Scientist": {
         "required": ["Python", "Pandas", "Numpy", "Sql", "Data Analysis", "Statistics"],
-        "bonus": ["Tableau", "Machine Learning", "R"]
+        "bonus": ["Tableau", "Machine Learning", "R"],
     },
     "Frontend Developer": {
         "required": ["Javascript", "Html", "Css", "React", "Angular", "Vue"],
-        "bonus": ["Typescript", "Next.js", "Tailwind"]
+        "bonus": ["Typescript", "Next.js", "Tailwind"],
     },
     "Backend Developer": {
         "required": ["Node.js", "Python", "Java", "Postgresql", "Mysql", "Mongodb"],
-        "bonus": ["Docker", "Aws", "Redis", "Fastapi", "Django", "Spring Boot"]
+        "bonus": ["Docker", "Aws", "Redis", "Fastapi", "Django", "Spring Boot"],
     },
     "Full Stack Developer": {
         "required": ["Javascript", "React", "Node.js", "Python", "Postgresql"],
-        "bonus": ["Aws", "Docker", "Typescript"]
+        "bonus": ["Aws", "Docker", "Typescript"],
     },
     "DevOps Engineer": {
         "required": ["Docker", "Kubernetes", "Aws", "Linux", "Jenkins", "Github Actions"],
-        "bonus": ["Terraform", "Ansible", "Python"]
-    }
+        "bonus": ["Terraform", "Ansible", "Python"],
+    },
 }
 
+
 class AffinityEngine:
-    def analyze(self, skill_result: SkillAnalysisResult) -> List[Dict[str, Any]]:
+    """
+    Deterministic role affinity calculator.
+    Consumes List[SkillIntelligence] — no LLM calls.
+    """
+
+    def analyze(self, skills: List[SkillIntelligence]) -> List[Dict[str, Any]]:
         """
-        Returns list of role affinities with confidence and evidence.
+        Return a list of role affinities sorted by confidence descending.
+
+        Args:
+            skills: List[SkillIntelligence] from CandidateIntelligenceProfile.skills.
+
+        Returns:
+            List of dicts: [{"role": str, "confidence": int, "evidence": List[str]}]
         """
-        affinities = []
-        
-        # Build lookup for fast matching
-        student_skills = {s.skill_name.lower(): s for s in skill_result.skills}
-        
+        # Build lookup: normalized skill name → SkillIntelligence
+        skill_lookup: Dict[str, SkillIntelligence] = {
+            s.skill.lower(): s for s in skills
+        }
+
+        affinities: List[Dict[str, Any]] = []
+
         for role, criteria in ROLE_MAPPING.items():
-            evidence = []
+            evidence: List[str] = []
             score = 0.0
-            
-            # Check required
             required_met = 0
+
             for req in criteria["required"]:
-                if req.lower() in student_skills:
-                    s = student_skills[req.lower()]
-                    evidence.append(s.skill_name)
+                sk = skill_lookup.get(req.lower())
+                if sk:
+                    weight = _STATUS_WEIGHT.get(sk.verification_status, 0.2)
+                    evidence.append(sk.skill)
                     required_met += 1
-                    score += s.confidence_score * 15
-            
-            # Check bonus
+                    score += weight * 15.0
+
             for bon in criteria["bonus"]:
-                if bon.lower() in student_skills:
-                    s = student_skills[bon.lower()]
-                    evidence.append(s.skill_name)
-                    score += s.confidence_score * 5
-                    
+                sk = skill_lookup.get(bon.lower())
+                if sk:
+                    weight = _STATUS_WEIGHT.get(sk.verification_status, 0.2)
+                    evidence.append(sk.skill)
+                    score += weight * 5.0
+
             if required_met > 0:
-                # Calculate confidence
-                # Max score roughly (len(req)*15 + len(bonus)*5) -> scale to 100
-                max_possible = len(criteria["required"]) * 15 + len(criteria["bonus"]) * 5
+                max_possible = len(criteria["required"]) * 15.0 + len(criteria["bonus"]) * 5.0
                 confidence = min(round((score / max_possible) * 100), 100)
-                
-                # Only include if they have at least some match
                 if confidence > 15:
                     affinities.append({
                         "role": role,
                         "confidence": confidence,
-                        "evidence": evidence
+                        "evidence": evidence,
                     })
-                    
+
         affinities.sort(key=lambda x: x["confidence"], reverse=True)
         return affinities

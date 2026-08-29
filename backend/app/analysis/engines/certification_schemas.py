@@ -1,66 +1,83 @@
 """
 app/analysis/engines/certification_schemas.py
 ---------------------------------------------
-Pydantic V2 boundary schemas for Phase 3.9 Certification Analysis.
+Pydantic v2 LLM boundary schemas for the SkillFit Certification Analysis Engine
+(Phase 3 Remediation).
 
-These schemas strictly enforce the LLM's structured output. They use the compact
-wire schema optimization (`ev: List[int]`) to minimize token consumption while
-retaining line-level evidence traceability.
+Architecture Principle:
+    LLM = Structured Qualitative Intelligence
+    Python = All Scores, Tiers, Confidence, Rankings
 
-Consumed by:
-    - Phase 3.9: Certification Analysis Engine (via GeminiProvider)
+The LLM evaluates:
+    - What category of certification this is
+    - Which competencies it supports
+    - Which domains it maps to
+    - Industry recognition level (qualitative)
+    - Practical strength (theory-heavy vs. implementation-supporting)
+    - Explicit limitations
+
+The LLM does NOT generate:
+    - Numerical scores
+    - Confidence percentages
+    - Hiring scores
 """
 
 from typing import List, Optional
-from pydantic import BaseModel, Field
 
-# Alias for our compact evidence array (just a list of line numbers)
-EvidenceRefs = List[int]
+from pydantic import BaseModel, ConfigDict, Field
 
 
-class ScoredDimensionSchema(BaseModel):
-    """A scored dimension with strict constraints."""
-    classification: Optional[str] = Field(None, description="Optional classification if applicable")
-    score: int = Field(0, ge=0, le=100, description="0-100 score")
-    confidence: float = Field(0.0, ge=0.0, le=1.0, description="0.0-1.0 confidence")
-    reasoning: str = Field(..., description="Max 20 words reasoning")
-    ev: EvidenceRefs = Field(default_factory=list, description="Line number citations")
+# ---------------------------------------------------------------------------
+# Certification Intelligence Schema
+# ---------------------------------------------------------------------------
 
-
-class SkillSignalSchema(BaseModel):
-    """A skill reasonably implied by the certification."""
-    name: str = Field(..., description="Name of the skill")
-    confidence: float = Field(0.0, ge=0.0, le=1.0, description="0.0-1.0 confidence")
-    reasoning: str = Field(..., description="Max 20 words reasoning")
-    ev: EvidenceRefs = Field(default_factory=list, description="Line number citations")
-
-
-class ExecutiveAssessmentSchema(BaseModel):
-    """Concise executive-level summary."""
-    overall_value: str = Field(..., description="Max 25 words")
-    strongest_signal: str = Field(..., description="Max 15 words")
-    primary_limitation: str = Field(..., description="Max 15 words")
-
-
-class CertificationIntelligence(BaseModel):
+class CertificationIntelligenceSchema(BaseModel):
     """
-    The structured output for ONE certification analysis.
-    This schema explicitly avoids dimensions like Learning Depth or Missing Evidence
-    to aggressively minimize token consumption and hallucination.
-    """
-    certification_recognition: ScoredDimensionSchema
-    skill_signals: List[SkillSignalSchema] = Field(default_factory=list, max_length=5)
-    industry_relevance: ScoredDimensionSchema
-    hiring_signal: ScoredDimensionSchema
-    evidence_strength: ScoredDimensionSchema
-    executive_assessment: ExecutiveAssessmentSchema
-    overall_confidence: float = Field(0.0, ge=0.0, le=1.0)
-    caveats: List[str] = Field(default_factory=list, max_length=2)
+    Structured intelligence for ONE certification.
 
+    supported_competencies must use values from the canonical CompetencyType taxonomy.
+    supported_domains must use values from the canonical DomainType taxonomy.
+    industry_recognition must be one of: "high" | "moderate" | "low" | "unknown"
+    practical_strength must be one of: "implementation-supporting" | "theory-heavy" | "mixed"
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    certification_name: Optional[str] = ""
+    category: Optional[str] = Field(
+        "",
+        description="High-level category: Cloud | Data Science | Security | Software Engineering | etc."
+    )
+    supported_competencies: List[str] = Field(
+        default_factory=list,
+        description="CompetencyType values this certification validates."
+    )
+    supported_domains: List[str] = Field(
+        default_factory=list,
+        description="DomainType values this certification signals."
+    )
+    industry_recognition: Optional[str] = Field(
+        "unknown",
+        description="high | moderate | low | unknown"
+    )
+    practical_strength: Optional[str] = Field(
+        "theory-heavy",
+        description="implementation-supporting | theory-heavy | mixed"
+    )
+    limitations: List[str] = Field(
+        default_factory=list,
+        description="Explicit capability gaps this cert does NOT validate."
+    )
+
+
+# ---------------------------------------------------------------------------
+# Batch schema for analyzing multiple certifications in one LLM call
+# ---------------------------------------------------------------------------
 
 class CertificationBatchIntelligence(BaseModel):
     """
-    The root structured output for a batched analysis call.
-    Expects up to BATCH_SIZE (e.g. 5) certifications analyzed at once.
+    Batch output for analyzing multiple certifications in a single LLM call.
+    Expects one CertificationIntelligenceSchema entry per input certification.
     """
-    certifications: List[CertificationIntelligence] = Field(default_factory=list)
+    model_config = ConfigDict(extra="ignore")
+
+    certifications: List[CertificationIntelligenceSchema] = Field(default_factory=list)

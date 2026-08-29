@@ -41,9 +41,23 @@ Consumed by:
 """
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from enum import Enum
+from typing import Dict, List, Optional
 
 from app.analysis.models.base import AnalysisEvidence
+
+class FindingType(str, Enum):
+    VERIFIED_FACT = "VERIFIED_FACT"
+    ANALYTICAL_OBSERVATION = "ANALYTICAL_OBSERVATION"
+    RISK_SIGNAL = "RISK_SIGNAL"
+    MISSING_EVIDENCE = "MISSING_EVIDENCE"
+
+class DemonstrationLevel(str, Enum):
+    CLAIMED = "CLAIMED"
+    MENTIONED = "MENTIONED"
+    USED = "USED"
+    IMPLEMENTED = "IMPLEMENTED"
+    ARCHITECTED = "ARCHITECTED"
 
 # ---------------------------------------------------------------------------
 # Evidence-based vocabulary (plain-string tiers — no enum coupling)
@@ -297,6 +311,7 @@ class AssessedPoint:
     """
     statement: str = ""
     reasoning: str = ""
+    finding_type: str = ""
     confidence: float = 0.0
     confidence_level: str = ""
     evidence: List[AnalysisEvidence] = field(default_factory=list)
@@ -374,6 +389,7 @@ class ProjectIntelligenceReport:
     secondary_domains: List[str] = field(default_factory=list)
     domain_confidence: float = 0.0
     domain_signals: List[str] = field(default_factory=list)
+    placement_signals: Dict[str, float] = field(default_factory=dict)
     project_tier: str = ""
     
     understanding: ProjectUnderstanding = field(default_factory=ProjectUnderstanding)

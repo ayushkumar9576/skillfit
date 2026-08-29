@@ -1,30 +1,39 @@
 """
 app/analysis/engines/internship_schemas.py
 -------------------------------------------
-Pydantic v2 validation schemas for the SkillFit Internship Analysis Engine
-(Phase 3.8).
+Pydantic v2 LLM boundary schemas for the SkillFit Internship Analysis Engine
+(Phase 3 Remediation).
 
-These schemas mirror the pure-dataclass report structures in
-``app.analysis.models.internship_models`` but live here, in the ``engines``
-package, because they are the LLM boundary.
+Architecture Principle:
+    LLM = Structured Qualitative Intelligence
+    Python = All Scores, Tiers, Confidence, Rankings
 
-Wire format vs. report shape:
-- Uses `ev: List[EvidenceRef]` (line-number references) instead of quoting text to save tokens.
-- `skills_and_tech` list acts as a single compact wire array that later fans out to both `TechnologyUsage` and `SkillEvidenceMap`.
+The LLM evaluates:
+    - What workplace exposure is demonstrated (Agile, CI/CD, Production, etc.)
+    - Which competencies are evidenced
+    - What ownership signals exist
+    - What engineering signals are present
+    - Findings (strengths, weaknesses, missing signals)
+
+The LLM does NOT generate:
+    - Numerical scores
+    - Confidence percentages
+    - Internship tiers
+    - Readiness scores
 """
 
 from typing import Annotated, Any, List, Optional, Union
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
+# ---------------------------------------------------------------------------
+# Evidence reference coercion
+# ---------------------------------------------------------------------------
 
 EvidenceRef = Union[int, str]
 
 
 def coerce_evidence_refs(value: Any) -> List[EvidenceRef]:
-    """
-    Normalize whatever the model produced for an ``ev`` field into line refs.
-    """
     if value is None:
         return []
     if isinstance(value, (int, str, dict)):
@@ -67,139 +76,144 @@ def coerce_evidence_refs(value: Any) -> List[EvidenceRef]:
 EvidenceRefs = Annotated[List[EvidenceRef], BeforeValidator(coerce_evidence_refs)]
 
 
-class ScoredDimensionSchema(BaseModel):
-    """
-    A single evidence-backed 0–100 score with reasoning + evidence refs.
-    """
+# ---------------------------------------------------------------------------
+# Technology Intelligence Schema
+# ---------------------------------------------------------------------------
+
+class TechnologyIntelligenceSchema(BaseModel):
+    """ONE technology used during the internship with its demonstration level."""
     model_config = ConfigDict(extra="ignore")
 
-    score: float = Field(0.0, description="0–100 numeric score; 0 when unsupported.")
-    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    technology: Optional[str] = Field("", description="Normalized technology name.")
+    demonstration_level: Optional[str] = Field(
+        "CLAIMED",
+        description="CLAIMED | REFERENCED | USED | IMPLEMENTED | DESIGNED | ARCHITECTED"
+    )
     reasoning: Optional[str] = ""
     ev: EvidenceRefs = Field(default_factory=list)
 
 
-class InternshipUnderstandingSchema(BaseModel):
-    """What the internship actually is."""
-    model_config = ConfigDict(extra="ignore")
+# ---------------------------------------------------------------------------
+# Competency Intelligence Schema
+# ---------------------------------------------------------------------------
 
-    purpose: Optional[str] = ""
-    domain: Optional[str] = ""
-    company_type: Optional[str] = ""
-    team_function: Optional[str] = ""
-    role_objective: Optional[str] = ""
-    confidence: float = Field(0.0, ge=0.0, le=1.0)
-    ev: EvidenceRefs = Field(default_factory=list)
-
-
-class WorkplaceMaturitySchema(BaseModel):
-    """Classification/score capturing exposure to production systems, etc."""
-    model_config = ConfigDict(extra="ignore")
-
-    classification: Optional[str] = ""
-    score: float = 0.0
-    confidence: float = Field(0.0, ge=0.0, le=1.0)
-    reasoning: Optional[str] = ""
-    ev: EvidenceRefs = Field(default_factory=list)
-
-
-class OwnershipClassificationSchema(BaseModel):
-    """Classification of ownership (observer, contributor, owner, lead_contributor)."""
-    model_config = ConfigDict(extra="ignore")
-
-    classification: Optional[str] = ""
-    score: float = 0.0
-    confidence: float = Field(0.0, ge=0.0, le=1.0)
-    reasoning: Optional[str] = ""
-    ev: EvidenceRefs = Field(default_factory=list)
-
-
-class SkillTechSchema(BaseModel):
+class CompetencyIntelligenceSchema(BaseModel):
     """
-    ONE skill-or-technology, carrying both of the facets the report needs.
+    ONE demonstrated engineering competency from the internship.
+
+    competency must map to a value from the canonical CompetencyType taxonomy.
     """
     model_config = ConfigDict(extra="ignore")
 
-    name: Optional[str] = Field("", description="Technology or skill name.")
-    kind: Optional[str] = Field(None, description="'tech' | 'skill'.")
-    depth: float = Field(0.0, description="0–100 depth-of-use score.")
-    status: Optional[str] = Field("unverified", description="claimed | demonstrated | verified | unverified")
-    sophistication: Optional[str] = ""
-    understanding: Optional[str] = ""
-    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    competency: Optional[str] = Field("", description="CompetencyType value.")
+    demonstrated: bool = True
+    demonstration_level: Optional[str] = Field(
+        "USED",
+        description="CLAIMED | REFERENCED | USED | IMPLEMENTED | DESIGNED | ARCHITECTED"
+    )
+    supporting_technologies: List[str] = Field(default_factory=list)
     reasoning: Optional[str] = ""
     ev: EvidenceRefs = Field(default_factory=list)
 
 
-class CompetencySchema(BaseModel):
-    """A demonstrated engineering competency."""
+# ---------------------------------------------------------------------------
+# Ownership Signal Schema
+# ---------------------------------------------------------------------------
+
+class OwnershipSignalSchema(BaseModel):
+    """
+    ONE ownership or leadership signal from the internship.
+
+    ownership_level must be one of: OBSERVED | CONTRIBUTED | IMPLEMENTED | OWNED | LED
+    """
     model_config = ConfigDict(extra="ignore")
 
-    name: Optional[str] = ""
-    score: float = 0.0
-    confidence: float = Field(0.0, ge=0.0, le=1.0)
-    reasoning: Optional[str] = ""
+    signal: Optional[str] = ""
+    ownership_level: Optional[str] = Field(
+        "CONTRIBUTED",
+        description="OBSERVED | CONTRIBUTED | IMPLEMENTED | OWNED | LED"
+    )
     ev: EvidenceRefs = Field(default_factory=list)
 
 
-class AssessedPointSchema(BaseModel):
-    """A single strength / weakness / risk with reasoning + evidence refs."""
+# ---------------------------------------------------------------------------
+# Workplace Exposure Schema
+# ---------------------------------------------------------------------------
+
+class WorkplaceExposureSchema(BaseModel):
+    """
+    ONE workplace process or environment the candidate was exposed to.
+
+    Examples: Agile, Code Reviews, CI/CD, Production Systems, Monitoring, On-call
+    """
     model_config = ConfigDict(extra="ignore")
 
-    statement: Optional[str] = ""
-    reasoning: Optional[str] = ""
-    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    exposure_type: Optional[str] = Field("", description="Normalized workplace exposure label.")
     ev: EvidenceRefs = Field(default_factory=list)
 
 
-class MissingEvidenceItemSchema(BaseModel):
-    """An expected aspect the resume does not substantiate."""
+# ---------------------------------------------------------------------------
+# Engineering Signal Schema
+# ---------------------------------------------------------------------------
+
+class EngineeringSignalSchema(BaseModel):
+    """
+    ONE engineering practice or pattern observed during the internship.
+
+    category must be one of: ARCHITECTURE | DEPLOYMENT | TESTING | SECURITY
+    """
     model_config = ConfigDict(extra="ignore")
 
-    aspect: Optional[str] = ""
+    category: Optional[str] = Field(
+        "",
+        description="ARCHITECTURE | DEPLOYMENT | TESTING | SECURITY"
+    )
+    signal: Optional[str] = ""
+    demonstrated: bool = True
+    ev: EvidenceRefs = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Finding Schema
+# ---------------------------------------------------------------------------
+
+class FindingSchema(BaseModel):
+    """
+    A qualitative finding — STRENGTH, WEAKNESS, or MISSING_SIGNAL.
+
+    type must be one of: STRENGTH | WEAKNESS | MISSING_SIGNAL
+    severity must be one of: LOW | MEDIUM | HIGH | CRITICAL
+    """
+    model_config = ConfigDict(extra="ignore")
+
+    type: Optional[str] = Field("", description="STRENGTH | WEAKNESS | MISSING_SIGNAL")
+    severity: Optional[str] = Field("MEDIUM", description="LOW | MEDIUM | HIGH | CRITICAL")
+    title: Optional[str] = ""
     description: Optional[str] = ""
-    impact: Optional[str] = ""
+    ev: EvidenceRefs = Field(default_factory=list)
 
 
-class ExecutiveAssessmentSchema(BaseModel):
-    """Executive-level technical summary of the internship."""
-    model_config = ConfigDict(extra="ignore")
-
-    overall_impression: Optional[str] = ""
-    demonstrates: List[str] = Field(default_factory=list)
-    does_not_demonstrate: List[str] = Field(default_factory=list)
-    strongest_signals: List[str] = Field(default_factory=list)
-    weakest_signals: List[str] = Field(default_factory=list)
-    overall_confidence: float = Field(0.0, ge=0.0, le=1.0)
-
+# ---------------------------------------------------------------------------
+# Top-level LLM schema
+# ---------------------------------------------------------------------------
 
 class InternshipIntelligence(BaseModel):
     """
-    Top-level validated schema for ONE internship's deep intelligence report.
+    Top-level validated LLM boundary schema for ONE internship's intelligence.
+
+    The LLM evaluates workplace exposure, technologies, competencies, ownership,
+    and engineering signals qualitatively. It does NOT generate scores or tiers.
     """
     model_config = ConfigDict(extra="ignore")
 
-    understanding: InternshipUnderstandingSchema = Field(default_factory=InternshipUnderstandingSchema)
-    technical_depth: ScoredDimensionSchema = Field(default_factory=ScoredDimensionSchema)
-    engineering_ownership: OwnershipClassificationSchema = Field(default_factory=OwnershipClassificationSchema)
-    collaboration_exposure: ScoredDimensionSchema = Field(default_factory=ScoredDimensionSchema)
-    impact_analysis: ScoredDimensionSchema = Field(default_factory=ScoredDimensionSchema)
-    production_exposure: ScoredDimensionSchema = Field(default_factory=ScoredDimensionSchema)
-    software_engineering_practices: ScoredDimensionSchema = Field(default_factory=ScoredDimensionSchema)
-    
-    skills_and_tech: List[SkillTechSchema] = Field(default_factory=list)
-    competencies: List[CompetencySchema] = Field(default_factory=list)
-    
-    industry_readiness: ScoredDimensionSchema = Field(default_factory=ScoredDimensionSchema)
-    hiring_signal: ScoredDimensionSchema = Field(default_factory=ScoredDimensionSchema)
-    internship_quality: Optional[str] = ""
-    workplace_maturity: WorkplaceMaturitySchema = Field(default_factory=WorkplaceMaturitySchema)
-    
-    strengths: List[AssessedPointSchema] = Field(default_factory=list)
-    weaknesses: List[AssessedPointSchema] = Field(default_factory=list)
-    missing_evidence: List[MissingEvidenceItemSchema] = Field(default_factory=list)
-    risks: List[AssessedPointSchema] = Field(default_factory=list)
-    
-    executive_assessment: ExecutiveAssessmentSchema = Field(default_factory=ExecutiveAssessmentSchema)
-    overall_confidence: float = Field(0.0, ge=0.0, le=1.0)
+    evidence_registry: dict = Field(
+        default_factory=dict,
+        description="Line-number → evidence classification map."
+    )
+    technologies: List[TechnologyIntelligenceSchema] = Field(default_factory=list)
+    competencies: List[CompetencyIntelligenceSchema] = Field(default_factory=list)
+    ownership_signals: List[OwnershipSignalSchema] = Field(default_factory=list)
+    workplace_exposure: List[WorkplaceExposureSchema] = Field(default_factory=list)
+    engineering_signals: List[EngineeringSignalSchema] = Field(default_factory=list)
+    findings: List[FindingSchema] = Field(default_factory=list)
     caveats: List[str] = Field(default_factory=list)

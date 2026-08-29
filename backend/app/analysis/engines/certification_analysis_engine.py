@@ -1,40 +1,33 @@
 """
 app/analysis/engines/certification_analysis_engine.py
 -----------------------------------------------------
-The SkillFit Certification Analysis Engine (Phase 3.9).
+SkillFit Certification Analysis Engine — Phase 3 Remediation.
 
-Orchestrates the highly token-optimized, batched intelligence pipeline for certifications.
-Features:
-    - Batch processing (up to 5 per prompt).
-    - Partial batch recovery (salvages valid certs if a batch fails).
-    - Hallucination defense (evidence rehydration).
-    - Cost verification metrics logging.
-    - Deterministic recognition logic (provider tiers + keywords).
+Orchestrates the batched certification intelligence pipeline.
+Calls the LLM with the new CertificationBatchIntelligence schema
+and maps results to CertificationIntelligence objects from candidate_profile.py.
+
+LLM infrastructure (batching, partial recovery, token control) is unchanged.
+Only the mapper layer (_map_to_report) has been replaced.
 """
 
 import asyncio
+import json
 import logging
 import os
-import json
+from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from pydantic import ValidationError
 
-from app.analysis.engines.normalization_engine import normalize_skill_name, get_display_name
-
-from app.analysis.models.base import AnalysisEvidence
-from app.analysis.models.certification_models import (
-    CertificationAnalysisResult,
-    CertificationEvidence,
-    CertificationIntelligenceReport,
-    ExecutiveAssessment,
-    ScoredDimension,
-    SkillSignal,
-    PROVIDER_UNKNOWN,
+from app.analysis.models.candidate_profile import (
+    CertificationIntelligence,
+    IntelligenceEvidence,
+    IntelligenceSourceType,
 )
 from app.analysis.engines.certification_schemas import (
     CertificationBatchIntelligence,
-    CertificationIntelligence,
+    CertificationIntelligenceSchema,
 )
 from app.services.llm.exceptions import LLMError, LLMResponseError
 from app.services.llm.service import LLMService, get_llm_service
@@ -47,7 +40,7 @@ _EVIDENCE_SECTION: str = "certifications"
 BATCH_SIZE = 5
 
 _RECOGNITION_KEYWORDS = frozenset({
-    "professional", "associate", "expert", "architect", 
+    "professional", "associate", "expert", "architect",
     "engineer", "specialist", "practitioner"
 })
 
@@ -66,9 +59,28 @@ def _resolve_max_tokens(explicit: Optional[int]) -> int:
     return DEFAULT_ANALYSIS_MAX_TOKENS
 
 
+# ---------------------------------------------------------------------------
+# Result container
+# ---------------------------------------------------------------------------
+
+@dataclass
+class CertificationAnalysisResult:
+    """Container for certification intelligence objects."""
+    certifications: List[Any] = field(default_factory=list)
+    total_certifications_count: int = 0
+    intelligence: List[CertificationIntelligence] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Engine
+# ---------------------------------------------------------------------------
+
 class CertificationAnalysisEngine:
     """
-    Evidence-based certification analysis orchestrator.
+    Evidence-based certification analysis orchestrator — Phase 3 Remediation.
+
+    Batched LLM call → CertificationBatchIntelligence schema →
+    CertificationIntelligence objects from candidate_profile.py.
     """
 
     def __init__(
@@ -83,95 +95,106 @@ class CertificationAnalysisEngine:
         self._max_tokens = _resolve_max_tokens(max_tokens)
         self._temperature = temperature
 
-    # -- public API ---------------------------------------------------------
-
     def analyze(
-        self, *, resume_id: str, certifications: List[CertificationEvidence]
+        self, *, resume_id: str, certifications: List[Any]
     ) -> CertificationAnalysisResult:
-        """Synchronous wrapper for analyze_async."""
-        return asyncio.run(self.analyze_async(resume_id=resume_id, certifications=certifications))
+        return asyncio.run(
+            self.analyze_async(resume_id=resume_id, certifications=certifications)
+        )
 
     async def analyze_async(
-        self, *, resume_id: str, certifications: List[CertificationEvidence]
+        self, *, resume_id: str, certifications: List[Any]
     ) -> CertificationAnalysisResult:
         result = CertificationAnalysisResult(
             certifications=certifications,
-            total_certifications_count=len(certifications)
+            total_certifications_count=len(certifications),
         )
-        if not result.certifications:
-            logger.info("Certification analysis: no certifications provided for resume %s; skipping LLM.", resume_id)
+        if not certifications:
+            logger.info(
+                "Certification analysis: no certifications for resume %s; skipping.", resume_id
+            )
             return result
 
         llm = self._get_llm_service()
-        logger.info("Starting analysis for %d certification(s) [Resume %s]", len(certifications), resume_id)
+        logger.info(
+            "Certification analysis: %d certification(s) for resume %s.",
+            len(certifications), resume_id,
+        )
 
-        # Batch the certifications
-        batches = [certifications[i:i + BATCH_SIZE] for i in range(0, len(certifications), BATCH_SIZE)]
-        reports: List[CertificationIntelligenceReport] = []
-
-        # Process batches concurrently
-        tasks = [
-            self._analyze_batch_with_recovery(llm, resume_id, batch, batch_idx, len(batches))
-            for batch_idx, batch in enumerate(batches)
+        batches = [
+            certifications[i:i + BATCH_SIZE]
+            for i in range(0, len(certifications), BATCH_SIZE)
         ]
-        
+        tasks = [
+            self._analyze_batch_with_recovery(llm, resume_id, batch, idx, len(batches))
+            for idx, batch in enumerate(batches)
+        ]
         batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-        
+
         for br in batch_results:
             if isinstance(br, Exception):
-                logger.error("Unhandled exception in certification batch task: %s", str(br), exc_info=br)
+                logger.error("Unhandled exception in certification batch: %s", str(br), exc_info=br)
             elif br:
-                reports.extend(br)
+                result.intelligence.extend(br)
 
-        result.reports = reports
-        logger.info("Successfully analyzed %d/%d certifications [Resume %s]", len(reports), len(certifications), resume_id)
+        logger.info(
+            "Certification analysis complete for resume %s: %d/%d processed.",
+            resume_id, len(result.intelligence), len(certifications),
+        )
         return result
 
-    # -- internal batching & recovery ----------------------------------------
+    # -- batch / recovery ----------------------------------------------------
 
     async def _analyze_batch_with_recovery(
-        self, llm: LLMService, resume_id: str, batch: List[CertificationEvidence], batch_idx: int, total_batches: int
-    ) -> List[CertificationIntelligenceReport]:
-        """
-        Analyzes a batch of certifications. If the batch fails validation, attempts partial recovery
-        by analyzing them individually (or falling back safely).
-        """
+        self,
+        llm: LLMService,
+        resume_id: str,
+        batch: List[Any],
+        batch_idx: int,
+        total_batches: int,
+    ) -> List[CertificationIntelligence]:
         try:
             return await self._analyze_batch(llm, resume_id, batch, batch_idx, total_batches)
         except (LLMResponseError, ValidationError) as e:
             logger.warning(
-                "Batch %d/%d failed validation (%s). Attempting partial batch recovery for %d certifications.", 
-                batch_idx + 1, total_batches, str(e), len(batch)
+                "Batch %d/%d failed validation (%s). Attempting partial recovery for %d certs.",
+                batch_idx + 1, total_batches, str(e), len(batch),
             )
-            # Partial Recovery: Analyze individually
-            recovered_reports = []
+            recovered: List[CertificationIntelligence] = []
             for idx, single_cert in enumerate(batch):
                 try:
-                    single_batch = [single_cert]
-                    res = await self._analyze_batch(llm, resume_id, single_batch, batch_idx, total_batches, is_recovery=True)
-                    recovered_reports.extend(res)
+                    res = await self._analyze_batch(
+                        llm, resume_id, [single_cert], batch_idx, total_batches,
+                        is_recovery=True,
+                    )
+                    recovered.extend(res)
                 except Exception as inner_e:
-                    logger.warning("Recovery failed for certification '%s' (Index %d in batch %d). Discarding. Error: %s", 
-                                   single_cert.certification_name, idx, batch_idx + 1, str(inner_e))
-            return recovered_reports
+                    logger.warning(
+                        "Recovery failed for certification '%s' (idx %d in batch %d): %s",
+                        getattr(single_cert, "certification_name", "unknown"),
+                        idx, batch_idx + 1, str(inner_e),
+                    )
+            return recovered
         except Exception as e:
             logger.error("Unexpected error in batch %d/%d: %s", batch_idx + 1, total_batches, str(e))
             return []
 
     async def _analyze_batch(
-        self, llm: LLMService, resume_id: str, batch: List[CertificationEvidence], batch_idx: int, total_batches: int, is_recovery: bool = False
-    ) -> List[CertificationIntelligenceReport]:
-        
-        # Build prompt payload
+        self,
+        llm: LLMService,
+        resume_id: str,
+        batch: List[Any],
+        batch_idx: int,
+        total_batches: int,
+        is_recovery: bool = False,
+    ) -> List[CertificationIntelligence]:
         evidence_payload = self._build_batch_payload(batch)
-        
         context = {
             "batch_size": len(batch),
-            "schema_name": "CertificationBatchIntelligence"
+            "schema_name": "CertificationBatchIntelligence",
         }
 
-        # LLM Call
-        response = await llm.analyze(
+        response: CertificationBatchIntelligence = await llm.analyze(
             analyzer=ANALYZER_NAME,
             data=evidence_payload,
             prompt_vars=context,
@@ -181,123 +204,83 @@ class CertificationAnalysisEngine:
             model=self._model,
         )
 
-        # Cost Verification Metrics Logging
         mode_str = "RECOVERY" if is_recovery else "BATCH"
         logger.info(
             "Cost Metrics [%s %d/%d]: certs_processed=%d",
-            mode_str, batch_idx + 1, total_batches, len(batch)
+            mode_str, batch_idx + 1, total_batches, len(batch),
         )
 
-        batch_output: CertificationBatchIntelligence = response
-        reports = []
-
-        # Map to intelligence reports
-        # The LLM is supposed to return a list of certifications in the exact order requested.
-        for idx, cert_intel in enumerate(batch_output.certifications):
+        results: List[CertificationIntelligence] = []
+        for idx, cert_intel in enumerate(response.certifications):
             if idx >= len(batch):
                 logger.warning("LLM returned more certifications than requested. Truncating.")
                 break
-                
             source_cert = batch[idx]
-            report = self._map_to_report(cert_intel, source_cert)
-            reports.append(report)
-
-        return reports
+            results.append(self._map_to_report(cert_intel, source_cert))
+        return results
 
     # -- payload generation --------------------------------------------------
 
-    def _build_batch_payload(self, batch: List[CertificationEvidence]) -> str:
-        """
-        Builds a highly compact JSON payload for the batch of certifications.
-        """
+    @staticmethod
+    def _build_batch_payload(batch: List[Any]) -> str:
         payloads = []
         for idx, cert in enumerate(batch):
             ev_list = []
-            for line_ev in cert.evidences:
-                ev_list.append({"line": line_ev.line_number, "text": line_ev.evidence_text})
-                
+            for line_ev in (getattr(cert, "evidences", []) or []):
+                ev_list.append({
+                    "line": line_ev.line_number,
+                    "text": line_ev.evidence_text,
+                })
             payloads.append({
                 "certification_index": idx,
-                "title": cert.certification_name,
-                "provider": cert.issuer,
-                "evidence": ev_list
+                "title": getattr(cert, "certification_name", ""),
+                "provider": getattr(cert, "issuer", ""),
+                "evidence": ev_list,
             })
-            
         return json.dumps(payloads, ensure_ascii=False)
 
-    # -- mapping & hydration -------------------------------------------------
+    # -- Mapper: CertificationIntelligenceSchema → CertificationIntelligence --
 
-    def _map_to_report(self, intel: CertificationIntelligence, source: CertificationEvidence) -> CertificationIntelligenceReport:
-        # 1. Deterministic signals
-        provider_tier = source.issuer if source.issuer else PROVIDER_UNKNOWN
-        
-        title_lower = source.certification_name.lower()
-        has_recognition_keyword = any(kw in title_lower for kw in _RECOGNITION_KEYWORDS)
-        
-        # Build lookup dict for hydration
-        ev_lookup = {e.line_number: e for e in source.evidences}
+    def _map_to_report(
+        self,
+        intel: CertificationIntelligenceSchema,
+        source: Any,
+    ) -> CertificationIntelligence:
+        cert_name = getattr(source, "certification_name", "") or ""
+        issuer = getattr(source, "issuer", "") or ""
 
-        # 2. Map dimensions
-        def _hydrate(refs: List[int]) -> List[AnalysisEvidence]:
-            hydrated = []
-            for ref in refs:
-                if ref in ev_lookup:
-                    hydrated.append(ev_lookup[ref])
-                else:
-                    logger.warning("Hallucinated or out-of-range evidence ref: %d in certification '%s'", ref, source.certification_name)
-            return hydrated
-
-        def _map_scored_dim(schema_dim, name: str) -> ScoredDimension:
-            return ScoredDimension(
-                name=name,
-                score=schema_dim.score,
-                confidence=schema_dim.confidence,
-                reasoning=schema_dim.reasoning,
-                classification=schema_dim.classification,
-                evidence=_hydrate(schema_dim.ev)
-            )
-
-        cert_rec = _map_scored_dim(intel.certification_recognition, "certification_recognition")
-        # Boost/adjust deterministically if applicable
-        if has_recognition_keyword and cert_rec.score < 50:
-            cert_rec.score = min(cert_rec.score + 10, 100)
-            
-        skill_signals = []
-        for s in intel.skill_signals:
-            raw_name = (s.name or "").strip()
-            if not raw_name:
-                continue
-            norm_name = normalize_skill_name(raw_name)
-            if not norm_name:
-                continue
-            
-            name = get_display_name(norm_name)
-            
-            skill_signals.append(SkillSignal(
-                name=name,
-                confidence=s.confidence,
-                reasoning=s.reasoning,
-                evidence=_hydrate(s.ev)
+        # Build evidence from source evidences
+        evidence: List[IntelligenceEvidence] = []
+        ev_lookup = {
+            e.line_number: e
+            for e in (getattr(source, "evidences", []) or [])
+            if e.line_number is not None
+        }
+        for ev_obj in (getattr(source, "evidences", []) or []):
+            evidence.append(IntelligenceEvidence(
+                source=IntelligenceSourceType.CERTIFICATION,
+                source_id=cert_name,
+                section=_EVIDENCE_SECTION,
+                quote=(ev_obj.evidence_text or "").strip(),
+                line_reference=ev_obj.line_number,
             ))
-            
-        exec_assess = ExecutiveAssessment(
-            overall_value=intel.executive_assessment.overall_value,
-            strongest_signal=intel.executive_assessment.strongest_signal,
-            primary_limitation=intel.executive_assessment.primary_limitation
-        )
 
-        return CertificationIntelligenceReport(
-            certification_name=source.certification_name,
-            source_certification=source,
-            provider_tier=provider_tier,
-            certification_recognition=cert_rec,
-            skill_signals=skill_signals,
-            industry_relevance=_map_scored_dim(intel.industry_relevance, "industry_relevance"),
-            hiring_signal=_map_scored_dim(intel.hiring_signal, "hiring_signal"),
-            evidence_strength=_map_scored_dim(intel.evidence_strength, "evidence_strength"),
-            executive_assessment=exec_assess,
-            overall_confidence=intel.overall_confidence,
-            caveats=intel.caveats
+        # Deterministic recognition boost
+        title_lower = cert_name.lower()
+        has_recognition_keyword = any(kw in title_lower for kw in _RECOGNITION_KEYWORDS)
+        industry_recognition = intel.industry_recognition or "unknown"
+        if has_recognition_keyword and industry_recognition in ("low", "unknown"):
+            industry_recognition = "moderate"
+
+        return CertificationIntelligence(
+            certification_name=cert_name,
+            category=intel.category or "",
+            supported_competencies=[c.upper() for c in (intel.supported_competencies or []) if c],
+            supported_domains=[d.upper() for d in (intel.supported_domains or []) if d],
+            industry_recognition=industry_recognition,
+            practical_strength=intel.practical_strength or "theory-heavy",
+            limitations=list(intel.limitations or []),
+            evidence=evidence,
         )
 
     def _get_llm_service(self) -> LLMService:

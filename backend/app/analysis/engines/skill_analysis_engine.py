@@ -1,192 +1,341 @@
-import json
-import logging
+"""
+app/analysis/engines/skill_analysis_engine.py
+----------------------------------------------
+Skill Verification Engine — Phase 3 Remediation.
+
+Role: Deterministic skill verification from aggregated intelligence.
+
+This engine is NOT an independent intelligence generator.
+It does NOT call the LLM.
+It does NOT generate confidence scores.
+It does NOT classify skills as Beginner/Intermediate/Advanced.
+
+Architecture:
+    Project Intelligence   ──┐
+    Internship Intelligence ──┤─→ CandidateIntelligenceAggregator → SkillVerificationEngine → List[SkillIntelligence]
+    Certification Intel.   ──┘
+
+Inputs:
+    A populated CandidateIntelligenceProfile containing technologies,
+    competencies, certifications, ownership signals, and engineering signals.
+    All evidence is already structured as IntelligenceEvidence objects.
+
+Outputs:
+    List[SkillIntelligence] — one entry per unique skill, with:
+        - skill: normalized name
+        - verification_status: VerificationStatus (UNVERIFIED → STRONGLY_VERIFIED)
+        - demonstration_level: DemonstrationLevel (CLAIMED → ARCHITECTED)
+        - evidence: List[IntelligenceEvidence]
+        - evidence_count: int (deterministic count, not a probability)
+
+Verification Logic:
+    Each evidence item carries a source type ("project", "internship", "certification").
+    A configurable weight is applied per source type (SKILL_EVIDENCE_WEIGHTS).
+    The cumulative weighted score maps to a VerificationStatus threshold.
+
+Demonstration Level Resolution:
+    The highest DemonstrationLevel observed across all evidence sources wins.
+    ARCHITECTED > DESIGNED > IMPLEMENTED > USED > REFERENCED > CLAIMED
+
+Design Rules:
+    - Pure standard library. Zero framework dependencies.
+    - No LLM calls.
+    - No confidence scores.
+    - No probabilistic reasoning.
+    - Fully reproducible from the same input profile.
+"""
+
+from __future__ import annotations
+
 import re
-from typing import List, Dict, Set, Tuple
+from typing import Dict, List, Optional
 
-from app.analysis.models.project_models import ProjectIntelligenceReport
-from app.analysis.models.internship_models import InternshipIntelligenceReport
-from app.analysis.models.certification_models import CertificationIntelligenceReport
-from app.analysis.models.skill_models import (
-    SkillAnalysisResult,
-    SkillProfile,
-    SkillEvidenceSource,
+from app.analysis.models.candidate_profile import (
+    CandidateIntelligenceProfile,
+    CompetencyType,
+    DemonstrationLevel,
+    IntelligenceEvidence,
+    IntelligenceSourceType,
+    SkillIntelligence,
+    VerificationStatus,
 )
-from app.analysis.models.base import AnalysisEvidence
-logger = logging.getLogger(__name__)
 
-from app.analysis.engines.normalization_engine import normalize_skill_name, get_display_name
+# ---------------------------------------------------------------------------
+# Configurable Evidence Weights (sourced from candidate_intelligence.py)
+# Defined here as well for standalone use; must be kept in sync.
+# ---------------------------------------------------------------------------
 
-def calculate_diversity_score(source_count: int) -> float:
-    if source_count >= 3:
-        return 1.0
-    if source_count == 2:
-        return 0.8
-    return 0.5
+SKILL_EVIDENCE_WEIGHTS: Dict[str, float] = {
+    IntelligenceSourceType.PROJECT.value: 1.0,
+    IntelligenceSourceType.INTERNSHIP.value: 0.7,
+    IntelligenceSourceType.CERTIFICATION.value: 0.3,
+    IntelligenceSourceType.SELF_REPORTED.value: 0.1,
+}
 
-def calculate_evidence_score(evidence_count: int) -> float:
-    if evidence_count >= 6:
-        return 1.0
-    if evidence_count >= 3:
-        return 0.7
-    return 0.4
+VERIFICATION_THRESHOLDS: Dict[str, float] = {
+    VerificationStatus.STRONGLY_VERIFIED.value: 2.0,
+    VerificationStatus.VERIFIED.value: 1.0,
+    VerificationStatus.WEAKLY_VERIFIED.value: 0.3,
+}
 
-class SkillAnalysisEngine:
+# Ordered from weakest to strongest — used for max-wins resolution
+_DEMO_LEVEL_ORDER: List[str] = [
+    DemonstrationLevel.CLAIMED.value,
+    DemonstrationLevel.REFERENCED.value,
+    DemonstrationLevel.USED.value,
+    DemonstrationLevel.IMPLEMENTED.value,
+    DemonstrationLevel.DESIGNED.value,
+    DemonstrationLevel.ARCHITECTED.value,
+]
+
+# Soft skill signals detected deterministically via regex
+# These are NOT LLM outputs — they are heuristic findings from ownership signals
+_SOFT_SKILL_PATTERNS: Dict[str, re.Pattern] = {
+    "Leadership": re.compile(
+        r'\b(led|lead|leading|directed|managed|orchestrated|spearheaded|guided|mentored|coordinated)\b',
+        re.IGNORECASE
+    ),
+    "Communication": re.compile(
+        r'\b(communicated|presented|negotiated|documented|reported|articulated|facilitated|pitched)\b',
+        re.IGNORECASE
+    ),
+    "Ownership": re.compile(
+        r'\b(owned|ownership|accountable|drove|delivered|sole|autonomous|end-to-end)\b',
+        re.IGNORECASE
+    ),
+    "Collaboration": re.compile(
+        r'\b(collaborated|teamwork|team player|partnered|cross-functional|pair programming|co-authored)\b',
+        re.IGNORECASE
+    ),
+    "Problem Solving": re.compile(
+        r'\b(solved|resolved|troubleshot|debugged|optimized|overcame|analyzed|investigated)\b',
+        re.IGNORECASE
+    ),
+    "Mentorship": re.compile(
+        r'\b(mentored|taught|tutored|trained|guided|onboarded|coached)\b',
+        re.IGNORECASE
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_verification(evidence: List[IntelligenceEvidence]) -> str:
     """
-    Deterministic intelligence aggregation engine (Phase 3.10) that
-    merges skills discovered by upstream engines into a unified profile.
+    Deterministically compute VerificationStatus from evidence sources.
+
+    Sums the weights of all evidence items' source types. Maps the
+    cumulative score to the highest satisfied threshold.
+    """
+    total = sum(SKILL_EVIDENCE_WEIGHTS.get(ev.source, 0.0) for ev in evidence)
+    for status, threshold in sorted(
+        VERIFICATION_THRESHOLDS.items(), key=lambda x: x[1], reverse=True
+    ):
+        if total >= threshold:
+            return status
+    return VerificationStatus.UNVERIFIED.value
+
+
+def _max_demo_level(a: str, b: str) -> str:
+    """Return the stronger of two DemonstrationLevel values."""
+    idx_a = _DEMO_LEVEL_ORDER.index(a) if a in _DEMO_LEVEL_ORDER else 0
+    idx_b = _DEMO_LEVEL_ORDER.index(b) if b in _DEMO_LEVEL_ORDER else 0
+    return _DEMO_LEVEL_ORDER[max(idx_a, idx_b)]
+
+
+def _normalize(name: str) -> str:
+    """Lowercase, strip, collapse whitespace for deduplication keying."""
+    return re.sub(r'\s+', ' ', name.strip().lower())
+
+
+# ---------------------------------------------------------------------------
+# Skill Verification Engine
+# ---------------------------------------------------------------------------
+
+class SkillVerificationEngine:
+    """
+    Deterministic skill verification from a CandidateIntelligenceProfile.
+
+    This engine aggregates evidence already structured by the upstream
+    Project, Internship, and Certification intelligence engines. It never
+    re-parses resume text and never calls the LLM.
+
+    Usage:
+        engine = SkillVerificationEngine()
+        skills = engine.verify(profile, self_reported_skills=["Python", "SQL"])
     """
 
-    def _is_valid_skill(self, raw_skill: str) -> bool:
-        s = normalize_skill_name(raw_skill)
-        return bool(s)
-
-    def analyze(
+    def verify(
         self,
-        project_reports: List[ProjectIntelligenceReport],
-        internship_reports: List[InternshipIntelligenceReport],
-        certification_reports: List[CertificationIntelligenceReport],
-        self_reported_skills_text: str = ""
-    ) -> SkillAnalysisResult:
-        
-        # 1. Fast Exit
-        if not project_reports and not internship_reports and not certification_reports and not self_reported_skills_text.strip():
-            return SkillAnalysisResult(skills=[], total_skills_count=0)
+        profile: CandidateIntelligenceProfile,
+        self_reported_skills: Optional[List[str]] = None,
+    ) -> List[SkillIntelligence]:
+        """
+        Produce a List[SkillIntelligence] from all intelligence sources in profile.
 
-        # Temp structures for aggregation
-        # Mapping: normalized_skill_name -> list of (source_type, source_name, source_id, confidence, list[AnalysisEvidence])
-        extracted_data: Dict[str, List[Tuple[str, str, str, float, List[AnalysisEvidence]]]] = {}
+        Sources consumed (in priority order):
+            1. profile.technologies — highest-signal source; carries demonstration level
+            2. profile.competencies — maps CompetencyType → skill entry
+            3. profile.certifications — adds WEAKLY_VERIFIED certification evidence
+            4. profile.ownership_signals — reinforces existing skills via signal text
+            5. profile.engineering_signals — reinforces technical skills
+            6. self_reported_skills — adds UNVERIFIED/WEAKLY_VERIFIED entries
 
-        # Helpers to add data
-        def _add_evidence(skill_name: str, src_type: str, src_name: str, src_id: str, src_conf: float, evs: List[AnalysisEvidence]):
-            if not self._is_valid_skill(skill_name):
+        Returns skills sorted by evidence_count descending, then alphabetically.
+        """
+        # Accumulator: key = normalized skill name → evidence list
+        evidence_map: Dict[str, List[IntelligenceEvidence]] = {}
+        # Accumulator: key → highest demo level seen
+        demo_level_map: Dict[str, str] = {}
+
+        def _add(
+            skill_name: str,
+            evidence: List[IntelligenceEvidence],
+            demo_level: str = DemonstrationLevel.CLAIMED.value,
+        ) -> None:
+            key = _normalize(skill_name)
+            if not key:
                 return
-            norm = normalize_skill_name(skill_name)
-            if norm not in extracted_data:
-                extracted_data[norm] = []
-            extracted_data[norm].append((src_type, src_name, src_id, src_conf, evs))
+            if key not in evidence_map:
+                evidence_map[key] = []
+                demo_level_map[key] = DemonstrationLevel.CLAIMED.value
+            evidence_map[key].extend(evidence)
+            demo_level_map[key] = _max_demo_level(demo_level_map[key], demo_level)
 
-        # 2. Collect from Projects
-        for p in project_reports:
-            src_name = p.project_title
-            src_id = None
-            # Collect from skill_evidence.items
-            for item in p.skill_evidence.items:
-                _add_evidence(item.skill, "Project", src_name, src_id, item.confidence, item.evidence)
-            # Collect from technology_usage
-            for tech in p.technology_usage:
-                _add_evidence(tech.technology, "Project", src_name, src_id, tech.confidence, tech.evidence)
+        # ── 1. Technologies ────────────────────────────────────────────────
+        for tech in profile.technologies:
+            if not tech.technology:
+                continue
+            _add(tech.technology, tech.evidence, tech.demonstration_level)
 
-        # 3. Collect from Internships
-        for i in internship_reports:
-            src_name = i.internship_role or i.internship_organization
-            src_id = None
-            for item in i.skill_evidence.items:
-                _add_evidence(item.skill, "Internship", src_name, src_id, item.confidence, item.evidence)
-            for tech in i.technology_usage:
-                _add_evidence(tech.technology, "Internship", src_name, src_id, tech.confidence, tech.evidence)
+        # ── 2. Competencies ───────────────────────────────────────────────
+        # Competencies are domain-level concepts (e.g. BACKEND_DEVELOPMENT).
+        # Map them as skill entries and also add their supporting technologies.
+        for comp in profile.competencies:
+            if not comp.competency or not comp.demonstrated:
+                continue
+            _add(comp.competency, comp.evidence, comp.demonstration_level)
+            # Reinforce supporting technologies with the same competency evidence
+            for tech_name in comp.supporting_technologies:
+                _add(tech_name, comp.evidence, comp.demonstration_level)
 
-        # 4. Collect from Certifications
-        for c in certification_reports:
-            src_name = c.certification_name
-            src_id = None
-            for item in c.skill_signals:
-                _add_evidence(item.name, "Certification", src_name, src_id, item.confidence, item.evidence)
-
-        # 4.5 Collect from Self-Reported Skills
-        if self_reported_skills_text.strip():
-            raw_skills = re.split(r'[,\n|/;]+', self_reported_skills_text)
-            for skill in raw_skills:
-                skill = skill.strip()
-                if skill:
-                    _add_evidence(skill, "self_reported", "skills_section", None, 0.25, [])
-
-        # 5. Build Final Profiles
-        final_skills: List[SkillProfile] = []
-        for norm_skill, sources in extracted_data.items():
-            
-            seen_evidence_keys: Set[Tuple[str, str, int]] = set()
-            merged_sources: Dict[Tuple[str, str], SkillEvidenceSource] = {}
-            
-            for src_type, src_name, src_id, src_conf, evs in sources:
-                src_key = (src_type, src_name)
-                if src_key not in merged_sources:
-                    merged_sources[src_key] = SkillEvidenceSource(
-                        source_type=src_type,
-                        source_name=src_name,
-                        source_id=src_id,
-                        source_confidence=src_conf,
-                        evidences=[]
+        # ── 3. Certifications ─────────────────────────────────────────────
+        # Certifications contribute lightweight evidence for their competencies.
+        # Create synthetic IntelligenceEvidence objects from the cert itself.
+        for cert in profile.certifications:
+            cert_evidence = cert.evidence or []
+            # If no evidence attached, create a minimal synthetic entry
+            if not cert_evidence:
+                cert_evidence = [
+                    IntelligenceEvidence(
+                        source=IntelligenceSourceType.CERTIFICATION,
+                        source_id=cert.certification_name,
+                        section="certifications",
+                        quote=f"Certification: {cert.certification_name}",
                     )
-                # Ensure we keep the max confidence if a project provides the same skill via both skill_evidence and technology_usage
-                merged_sources[src_key].source_confidence = max(merged_sources[src_key].source_confidence, src_conf)
-                
-                # Deduplicate evidence lines
-                for e in evs:
-                    ev_key = (src_type, src_name, e.line_number)
-                    if ev_key not in seen_evidence_keys:
-                        seen_evidence_keys.add(ev_key)
-                        merged_sources[src_key].evidences.append(e)
+                ]
+            for comp_name in cert.supported_competencies:
+                _add(comp_name, cert_evidence, DemonstrationLevel.REFERENCED.value)
 
-            # Build evidence block
-            final_evidences = list(merged_sources.values())
-            
-            source_count = len(final_evidences)
-            evidence_count = len(seen_evidence_keys)
+        # ── 4. Ownership signals ──────────────────────────────────────────
+        # Ownership signals reinforce technical skills implied by the signal text.
+        # We do NOT invent new skills here — only reinforce what is already tracked.
+        for sig in profile.ownership_signals:
+            if not sig.evidence:
+                continue
+            # Reinforce any tracked skill whose name appears in the signal text
+            for key in list(evidence_map.keys()):
+                if key in _normalize(sig.signal):
+                    evidence_map[key].extend(sig.evidence)
+                    # Ownership signals imply at least USED level
+                    demo_level_map[key] = _max_demo_level(
+                        demo_level_map[key], DemonstrationLevel.USED.value
+                    )
 
-            # Report confidence score (average of source confidences)
-            report_conf_avg = sum(s.source_confidence for s in final_evidences) / source_count if source_count > 0 else 0.0
+        # ── 5. Engineering signals ────────────────────────────────────────
+        # Engineering signals (DEPLOYMENT, TESTING, etc.) reinforce technical skills
+        for esig in profile.engineering_signals:
+            if not esig.demonstrated or not esig.evidence:
+                continue
+            # Reinforce existing keys that appear in the signal description
+            for key in list(evidence_map.keys()):
+                if key in _normalize(esig.signal):
+                    evidence_map[key].extend(esig.evidence)
 
-            # Compute Confidence
-            div_score = calculate_diversity_score(source_count)
-            ev_score = calculate_evidence_score(evidence_count)
-            conf_score = (div_score + ev_score + report_conf_avg) / 3
+        # ── 6. Soft skills from ownership signals (heuristic) ─────────────
+        for sig in profile.ownership_signals:
+            for soft_skill, pattern in _SOFT_SKILL_PATTERNS.items():
+                if pattern.search(sig.signal):
+                    _add(soft_skill, sig.evidence, DemonstrationLevel.REFERENCED.value)
 
-            if conf_score >= 0.80:
-                conf_level = "HIGH"
-            elif conf_score >= 0.60:
-                conf_level = "MEDIUM"
-            else:
-                conf_level = "LOW"
+        # ── 7. Self-reported skills ───────────────────────────────────────
+        # Self-reported skills start at UNVERIFIED unless the profile already
+        # contains evidence for them (in which case they inherit existing status).
+        for skill in (self_reported_skills or []):
+            key = _normalize(skill)
+            if key and key not in evidence_map:
+                # No corroborating evidence found — create minimal entry
+                self_reported_ev = IntelligenceEvidence(
+                    source=IntelligenceSourceType.SELF_REPORTED,
+                    source_id="skills_section",
+                    section="skills",
+                    quote=f"Self-reported: {skill}",
+                )
+                _add(skill, [self_reported_ev], DemonstrationLevel.CLAIMED.value)
+            # If already tracked, no action needed — profile evidence wins
 
-            # Compute Depth
-            if source_count >= 3 and evidence_count >= 6:
-                depth = "Advanced"
-            elif source_count >= 2 and evidence_count >= 3:
-                depth = "Intermediate"
-            else:
-                depth = "Beginner"
+        # ── Build final SkillIntelligence list ────────────────────────────
+        result: List[SkillIntelligence] = []
+        for key, evidence_list in evidence_map.items():
+            # Deduplicate evidence by (source, source_id, quote) tuple
+            seen: set = set()
+            unique_evidence: List[IntelligenceEvidence] = []
+            for ev in evidence_list:
+                dedup_key = (ev.source, ev.source_id, ev.quote[:80])
+                if dedup_key not in seen:
+                    seen.add(dedup_key)
+                    unique_evidence.append(ev)
 
-            # Compute Hiring Signal
-            if conf_score > 0.75 and source_count > 1 and evidence_count >= 3:
-                hiring_signal = "High"
-            elif conf_score >= 0.5 or evidence_count >= 2:
-                hiring_signal = "Medium"
-            else:
-                hiring_signal = "Low"
+            if not unique_evidence:
+                continue  # Never emit a skill without evidence
 
-            # Construct profile (using properly capitalized display name)
-            display_name = get_display_name(norm_skill)
+            verification_status = _resolve_verification(unique_evidence)
+            demo_level = demo_level_map.get(key, DemonstrationLevel.CLAIMED.value)
 
-            final_skills.append(
-                SkillProfile(
-                    skill_name=display_name,
-                    confidence_score=round(conf_score, 2),
-                    confidence_level=conf_level,
-                    evidence_count=evidence_count,
-                    source_count=source_count,
-                    skill_depth=depth,
-                    hiring_signal=hiring_signal,
-                    evidences=final_evidences
+            result.append(
+                SkillIntelligence(
+                    skill=key,
+                    verification_status=verification_status,
+                    demonstration_level=demo_level,
+                    evidence=unique_evidence,
+                    evidence_count=len(unique_evidence),
                 )
             )
 
-        # 6. Deterministic Ordering
-        final_skills.sort(
-            key=lambda s: (
-                -s.confidence_score,
-                -s.evidence_count,
-                s.skill_name,
-            )
-        )
+        # Sort: most evidence first, then alphabetically
+        result.sort(key=lambda s: (-s.evidence_count, s.skill))
+        return result
 
-        return SkillAnalysisResult(skills=final_skills, total_skills_count=len(final_skills))
+
+# ---------------------------------------------------------------------------
+# Convenience alias for backward compatibility during transition
+# (Do not rely on this in new code — use SkillVerificationEngine directly)
+# ---------------------------------------------------------------------------
+
+class SkillAnalysisEngine(SkillVerificationEngine):
+    """
+    Deprecated alias for SkillVerificationEngine.
+    Provided only for transitional compatibility with existing pipeline references.
+    New code must use SkillVerificationEngine directly.
+    """
+
+    def analyze(
+        self,
+        profile: CandidateIntelligenceProfile,
+        self_reported_skills: Optional[List[str]] = None,
+        # Legacy kwargs silently ignored:
+        **_ignored,
+    ) -> List[SkillIntelligence]:
+        return self.verify(profile, self_reported_skills=self_reported_skills)

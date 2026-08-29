@@ -37,6 +37,27 @@ from app.analysis.models.base import AnalysisEvidence
 # Evidence-based vocabulary (plain-string tiers — no enum coupling)
 # ---------------------------------------------------------------------------
 
+from enum import Enum
+
+class InternshipEvidenceType(str, Enum):
+    DIRECT_WORK = "DIRECT_WORK"
+    DIRECT_RESULT = "DIRECT_RESULT"
+    DIRECT_RESPONSIBILITY = "DIRECT_RESPONSIBILITY"
+    CLAIMED = "CLAIMED"
+
+class InternshipDemonstrationLevel(str, Enum):
+    CLAIMED = "CLAIMED"
+    ASSISTED = "ASSISTED"
+    EXECUTED = "EXECUTED"
+    OWNED = "OWNED"
+    LED = "LED"
+
+class InternshipTier(str, Enum):
+    EXPOSURE = "EXPOSURE"
+    CONTRIBUTOR = "CONTRIBUTOR"
+    OWNER = "OWNER"
+    HIGH_IMPACT = "HIGH_IMPACT"
+
 #: Canonical sentinel emitted whenever an assessment cannot be substantiated.
 CANNOT_VERIFY: str = "Cannot be verified from available evidence."
 
@@ -57,7 +78,6 @@ SKILL_CLAIMED: str = "claimed"
 SKILL_DEMONSTRATED: str = "demonstrated"
 SKILL_VERIFIED: str = "verified"
 SKILL_UNVERIFIED: str = "unverified"
-
 
 # ---------------------------------------------------------------------------
 # Extraction layer (Phase 3.5)
@@ -237,6 +257,7 @@ class InternshipIntelligenceReport:
     secondary_domains: List[str] = field(default_factory=list)
     domain_confidence: float = 0.0
     industry_exposure_level: str = ""
+    internship_tier: str = ""
     
     understanding: InternshipUnderstanding = field(default_factory=InternshipUnderstanding)
     technical_depth: ScoredDimension = field(

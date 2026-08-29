@@ -469,87 +469,71 @@ def _stage_skill_analysis(_db: Session, resume: ResumeFile) -> bool:
 
 def _stage_readiness_engine(db: Session, resume: ResumeFile) -> bool:
     """
-    Stage 7 — Readiness Engine (Phase 3.11).
-    Aggregates Project, Internship, Certification, and Skill results to calculate Readiness.
+    Stage 7 — Readiness Engine (Phase 3 Final Hardening).
+    Derives readiness from CandidateIntelligenceProfile — not from old result types.
     """
     try:
         from app.analysis.engines.readiness_engine import ReadinessEngine
-        
-        project_result = getattr(resume, "_temp_project_result", None)
-        internship_result = getattr(resume, "_temp_internship_result", None)
-        certification_result = getattr(resume, "_temp_certification_result", None)
-        skill_result = getattr(resume, "_temp_skill_result", None)
-        
+
+        # The CandidateIntelligenceProfile is set by Stage 6 (skill analysis)
+        profile = getattr(resume, "_temp_intelligence_profile", None)
+        if profile is None:
+            logger.warning(
+                "Pipeline Stage 7 (readiness) skipped — no intelligence profile available."
+            )
+            return True
+
         engine = ReadinessEngine()
         result = engine.analyze(
             resume_id=str(resume.id),
-            project_result=project_result,
-            internship_result=internship_result,
-            certification_result=certification_result,
-            skill_result=skill_result,
+            profile=profile,
         )
-        
-        with open(debug_dir / "debug_readiness.json", "w", encoding="utf-8") as f:
-            json.dump(
-                result.to_dict(),
-                f,
-                indent=2,
-                ensure_ascii=False,
-            )
-            
-        print("\n===== READINESS ANALYSIS RESULT =====")
-        print(f"Readiness Score: {result.readiness_score} ({result.readiness_level.value})")
-        print(f"Overall Confidence: {result.overall_confidence}")
-        print(f"Analysis Status: {result.analysis_status.value}")
-        print(f"Strengths: {len(result.strengths)}")
-        print(f"Gaps: {len(result.gaps)}")
-        print("======================================\n")
-        
+
         setattr(resume, "_temp_readiness_result", result)
+        logger.info(
+            "Pipeline Stage 7 (readiness) complete: resume_id=%s score=%.1f level=%s",
+            resume.id, result.readiness_score, result.readiness_level.value,
+        )
         return True
     except Exception as exc:
         logger.error(
             "Pipeline Stage 7 (readiness analysis) FAILED: resume_id=%s error=%s",
-            resume.id,
-            exc,
+            resume.id, exc,
         )
         return False
+
 
 
 def _stage_synthesis_engine(db: Session, resume: ResumeFile) -> bool:
     """
-    Stage 8 — Synthesis Engine (Phase 3.X).
-    Aggregates upstream analysis to synthesize the Candidate Profile.
+    Stage 8 — Synthesis Engine (Phase 3 Final Hardening).
+    Bridges CandidateIntelligenceProfile → legacy candidate_profile_dict
+    for analysis_persistence_service.py.
+
+    TEMPORARY: Removed when DB persistence sprint introduces
+    CandidateIntelligenceSnapshot-based storage.
     """
     try:
         from app.analysis.engines.synthesis_engine import SynthesisEngine
-        
-        project_result = getattr(resume, "_temp_project_result", None)
-        internship_result = getattr(resume, "_temp_internship_result", None)
-        certification_result = getattr(resume, "_temp_certification_result", None)
-        skill_result = getattr(resume, "_temp_skill_result", None)
-        
-        if not skill_result:
-            logger.warning("Pipeline Stage 8 (synthesis) skipped — missing skill_result")
+
+        profile = getattr(resume, "_temp_intelligence_profile", None)
+        if not profile:
+            logger.warning("Pipeline Stage 8 (synthesis) skipped — no intelligence profile.")
             return True
-            
+
         engine = SynthesisEngine()
-        profile_dict = engine.synthesize(
-            tech_skills=skill_result,
-            project_reports=project_result.reports if project_result else [],
-            internship_reports=internship_result.reports if internship_result else [],
-            certification_reports=certification_result.reports if certification_result else []
-        )
-        
+        profile_dict = engine.synthesize(profile=profile)
+
         setattr(resume, "_temp_candidate_profile", profile_dict)
+        logger.info("Pipeline Stage 8 (synthesis) complete: resume_id=%s", resume.id)
         return True
     except Exception as exc:
         logger.error(
             "Pipeline Stage 8 (synthesis) FAILED: resume_id=%s error=%s",
-            resume.id,
-            exc,
+            resume.id, exc,
         )
         return False
+
 
 
 def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:

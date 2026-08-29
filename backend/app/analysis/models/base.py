@@ -16,7 +16,15 @@ Design Rules:
 
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
+from enum import Enum
 from typing import Optional
+
+
+class EvidenceType(str, Enum):
+    DIRECT_IMPLEMENTATION = "DIRECT_IMPLEMENTATION"
+    DIRECT_ARCHITECTURE = "DIRECT_ARCHITECTURE"
+    DIRECT_RESULT = "DIRECT_RESULT"
+    CLAIMED = "CLAIMED"
 
 
 @dataclass
@@ -31,12 +39,16 @@ class AnalysisEvidence:
         confidence: Confidence score of this extraction (0.0 to 1.0).
         context_snippet: Surrounding sentence or paragraph for human auditability.
         line_number: Line index in the normalized resume text for pinpoint traceability.
+        evidence_type: The derived category of this evidence.
+        validated: True unless rejected by the anti-hallucination layer.
     """
     evidence_text: str
     source_section: str
     confidence: float = 1.0
     context_snippet: Optional[str] = None
     line_number: Optional[int] = None
+    evidence_type: str = ""
+    validated: bool = True
 
 
 @dataclass

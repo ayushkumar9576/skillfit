@@ -171,6 +171,5 @@ def get_llm_service() -> LLMService:
             ``OPENAI_API_KEY``) when the service is first built.
     """
     global _llm_service
-    if _llm_service is None:
-        _llm_service = LLMService()
+    _llm_service = LLMService()
     return _llm_service

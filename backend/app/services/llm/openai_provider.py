@@ -151,7 +151,7 @@ class OpenAIProvider(BaseLLMProvider):
         # the environment itself, bypassing this resolution (and turning a stray
         # whitespace value into a broken URL).
         resolved_base_url = (base_url or os.getenv("OPENAI_BASE_URL") or "").strip()
-
+        print("OPENAI_BASE_URL =", resolved_base_url)
         # max_retries=0: retry policy is owned by this layer, not the SDK.
         self._client = AsyncOpenAI(
             api_key=key,
@@ -196,7 +196,16 @@ class OpenAIProvider(BaseLLMProvider):
             request_kwargs["timeout"] = timeout
 
         try:
+            print("\n===== LLM REQUEST DEBUG =====")
+            print("MODEL:", use_model)
+            print("SYSTEM PROMPT LENGTH:", len(system_prompt))
+            print("USER CONTENT LENGTH:", len(user_content))
+            print("MAX TOKENS:", max_tokens)
+            print("TIMEOUT:", timeout or self._settings.timeout)
+            print("=============================\n")
+            print("1 - BEFORE OPENROUTER")
             response = await self._client.chat.completions.create(**request_kwargs)
+            print("OPENROUTER RESPONSE RECEIVED")
         except (
             APITimeoutError,
             RateLimitError,
@@ -204,13 +213,8 @@ class OpenAIProvider(BaseLLMProvider):
             APIStatusError,
             APIError,
         ) as exc:
-            mapped = _map_openai_exception(exc)
-            logger.warning(
-                "OpenAI request failed: %s (transient=%s).",
-                type(exc).__name__,
-                mapped.transient,
-            )
-            raise mapped from exc
+            logger.exception("RAW OPENAI ERROR")
+            raise _map_openai_exception(exc) from exc
 
         choice = response.choices[0] if getattr(response, "choices", None) else None
         content = choice.message.content if choice is not None else None
@@ -242,8 +246,9 @@ class OpenAIProvider(BaseLLMProvider):
             len(content or ""), content or "",
         )
         # Enforce the JSON/schema contract (raises LLMResponseError on failure).
+        print("STARTING STRUCTURED PARSE")
         parsed = validate_response(content, response_schema)
-
+        print("STRUCTURED PARSE COMPLETE")
         usage = LLMUsage(
             provider=self.PROVIDER_NAME,
             model=model_used,
@@ -251,6 +256,7 @@ class OpenAIProvider(BaseLLMProvider):
             completion_tokens=completion_tokens,
             total_tokens=total_tokens,
         )
+        print("RETURNING RESULT")
         return LLMCompletion(
             parsed=parsed,
             raw_text=content or "",
