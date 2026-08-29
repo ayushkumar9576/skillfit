@@ -77,8 +77,8 @@ Thumbs.db
 *.swo
 .vscode/
 .idea/
-docs
 
 DEBUG
 tests
 Admin
+Project_docs.txt
