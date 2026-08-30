@@ -16,6 +16,7 @@ import MissingEvidencePanel from "@/components/analysis/MissingEvidencePanel";
 import PlacementRecommendations from "@/components/analysis/PlacementRecommendations";
 import ImprovementRoadmap from "@/components/analysis/ImprovementRoadmap";
 import EvidenceExplorer from "@/components/analysis/EvidenceExplorer";
+import ProjectSophisticationPanel from "@/components/analysis/ProjectSophisticationPanel";
 
 export default function AnalysisDashboardPage() {
   const { data: resumesData, isLoading: isLoadingResumes, error: resumesError } = useQuery({
@@ -71,7 +72,7 @@ export default function AnalysisDashboardPage() {
   };
 
   return (
-    <div className="flex flex-col gap-8 max-w-7xl mx-auto pb-12">
+    <div className="flex flex-col gap-8 max-w-full 2xl:max-w-[1920px] mx-auto pb-12 w-full">
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold tracking-tight text-slate-900">Placement Intelligence Dashboard</h1>
         <p className="text-slate-500 max-w-3xl">
@@ -115,6 +116,17 @@ export default function AnalysisDashboardPage() {
             isLoading={isLoading} 
           />
         </section>
+
+        {profile.project_sophistication && profile.project_sophistication.length > 0 && (
+          <section>
+            <ProjectSophisticationPanel
+              projectSophistication={profile.project_sophistication}
+              averageProjectSophistication={profile.average_project_sophistication ?? 0}
+              highestProjectSophistication={profile.highest_project_sophistication ?? 0}
+              isLoading={isLoading}
+            />
+          </section>
+        )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
           <MissingEvidencePanel 

@@ -54,7 +54,7 @@ export default function EvidenceExplorer({ title, evidence, level }: EvidenceExp
                     <CheckCircle2 className="h-4 w-4 text-emerald-500" />
                   </div>
                   <div className="flex flex-col gap-2">
-                    <p className="text-slate-700 italic">
+                    <p className="text-slate-700 italic max-w-4xl leading-relaxed">
                       &ldquo;{ev.quote}&rdquo;
                     </p>
                     <div className="flex flex-wrap items-center gap-2 mt-1">

@@ -75,6 +75,15 @@ export enum DomainType {
   DISTRIBUTED_SYSTEMS = "DISTRIBUTED_SYSTEMS",
 }
 
+export enum SophisticationTier {
+  BEGINNER = "BEGINNER",
+  BASIC = "BASIC",
+  INTERMEDIATE = "INTERMEDIATE",
+  ADVANCED = "ADVANCED",
+  NEAR_INDUSTRY_READY = "NEAR_INDUSTRY_READY",
+  INDUSTRY_GRADE = "INDUSTRY_GRADE",
+}
+
 export interface IntelligenceEvidence {
   source: IntelligenceSourceType;
   source_id: string;
@@ -175,6 +184,17 @@ export interface CandidateSummary {
   readiness_highlights: string[];
 }
 
+export interface ProjectSophisticationRecord {
+  /** Title of the analyzed project. */
+  project_name: string;
+  /** Holistic sophistication score (0–100), produced by the LLM. */
+  sophistication_score: number;
+  /** Tier derived deterministically by Python (BEGINNER … INDUSTRY_GRADE). */
+  sophistication_tier: string; // Maps to SophisticationTier
+  /** Concise LLM justification (≤ 30 words). */
+  sophistication_reasoning: string;
+}
+
 export interface CandidateIntelligenceProfile {
   technologies: TechnologyIntelligence[];
   competencies: CompetencyIntelligence[];
@@ -186,6 +206,12 @@ export interface CandidateIntelligenceProfile {
   workplace_exposure: WorkplaceExposure[];
   findings: Finding[];
   recommendations: Recommendation[];
+  /** Per-project sophistication records (Phase 3 enhancement) */
+  project_sophistication: ProjectSophisticationRecord[];
+  /** Average sophistication score across all analyzed projects */
+  average_project_sophistication: number;
+  /** Highest sophistication score among all analyzed projects */
+  highest_project_sophistication: number;
   summary: CandidateSummary;
   metadata: ProfileMetadata;
 }

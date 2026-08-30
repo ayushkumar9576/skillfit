@@ -36,9 +36,9 @@ export default function CompetencyDashboard({
           </p>
         </div>
 
-        <div className="space-y-6">
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-6">
           {sortedCompetencies.map((comp) => (
-            <div key={comp.competency} className="flex flex-col gap-3 pb-4 border-b border-slate-100 last:border-0">
+            <div key={comp.competency} className="flex flex-col gap-3 pb-4 border-b md:border-b-0 border-slate-100 bg-slate-50 p-4 rounded-xl shadow-sm border border-slate-100">
               <div className="flex justify-between items-start">
                 <div>
                   <h4 className="font-semibold text-slate-900">{comp.competency}</h4>
@@ -48,15 +48,15 @@ export default function CompetencyDashboard({
                 </div>
               </div>
               
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+              <div className="grid grid-cols-1 gap-4 text-sm mt-2">
                 {comp.supporting_technologies && comp.supporting_technologies.length > 0 && (
                   <div>
-                    <span className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">
+                    <span className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
                       Supporting Technologies
                     </span>
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1.5">
                       {comp.supporting_technologies.map(tech => (
-                        <span key={tech} className="inline-flex items-center rounded-md bg-slate-50 px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">
+                        <span key={tech} className="inline-flex items-center rounded-md bg-white px-2 py-1 text-xs font-medium text-slate-600 ring-1 ring-inset ring-slate-500/10">
                           {tech}
                         </span>
                       ))}
@@ -66,12 +66,12 @@ export default function CompetencyDashboard({
 
                 {comp.supporting_projects && comp.supporting_projects.length > 0 && (
                   <div>
-                    <span className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-1">
+                    <span className="block text-xs font-medium text-slate-500 uppercase tracking-wider mb-2">
                       Demonstrated In
                     </span>
-                    <div className="flex flex-col gap-1">
+                    <div className="flex flex-col gap-1.5">
                       {comp.supporting_projects.map(proj => (
-                        <span key={proj} className="text-slate-700">
+                        <span key={proj} className="text-slate-700 text-xs">
                           • {proj}
                         </span>
                       ))}

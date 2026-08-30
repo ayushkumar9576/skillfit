@@ -100,6 +100,60 @@ SKILL_UNVERIFIED: str = "unverified"
 
 
 # ---------------------------------------------------------------------------
+# Sophistication tier vocabulary (computed by Python — never by the LLM)
+# ---------------------------------------------------------------------------
+
+class SophisticationTier(str, Enum):
+    """
+    Deterministic tier classification derived from a project sophistication
+    score (0–100). The LLM provides the score; Python derives the tier.
+
+    This mapping is authoritative: all downstream systems and the frontend
+    must use this enum as the source of truth.
+
+    Ordering (least → most sophisticated):
+        BEGINNER → BASIC → INTERMEDIATE → ADVANCED
+        → NEAR_INDUSTRY_READY → INDUSTRY_GRADE
+    """
+    BEGINNER = "BEGINNER"               # 0–20
+    BASIC = "BASIC"                     # 21–40
+    INTERMEDIATE = "INTERMEDIATE"       # 41–60
+    ADVANCED = "ADVANCED"               # 61–80
+    NEAR_INDUSTRY_READY = "NEAR_INDUSTRY_READY"  # 81–90
+    INDUSTRY_GRADE = "INDUSTRY_GRADE"   # 91–100
+
+
+def score_to_tier(score: int) -> str:
+    """
+    Deterministically derive a SophisticationTier from a 0–100 score.
+
+    Args:
+        score: Integer in [0, 100]. Values outside this range are clamped.
+
+    Returns:
+        The canonical SophisticationTier string value.
+
+    Example:
+        >>> score_to_tier(86)
+        'NEAR_INDUSTRY_READY'
+        >>> score_to_tier(35)
+        'BASIC'
+    """
+    clamped = max(0, min(100, score))
+    if clamped <= 20:
+        return SophisticationTier.BEGINNER.value
+    if clamped <= 40:
+        return SophisticationTier.BASIC.value
+    if clamped <= 60:
+        return SophisticationTier.INTERMEDIATE.value
+    if clamped <= 80:
+        return SophisticationTier.ADVANCED.value
+    if clamped <= 90:
+        return SophisticationTier.NEAR_INDUSTRY_READY.value
+    return SophisticationTier.INDUSTRY_GRADE.value
+
+
+# ---------------------------------------------------------------------------
 # Extraction layer (Phase 3.5)
 # ---------------------------------------------------------------------------
 

@@ -27,8 +27,10 @@ from app.analysis.models.candidate_profile import (
     IntelligenceEvidence,
     IntelligenceSourceType,
     OwnershipIntelligence,
+    ProjectSophisticationRecord,
     TechnologyIntelligence,
 )
+from app.analysis.models.project_models import score_to_tier
 from app.analysis.engines.project_schemas import (
     EvidenceRef,
     ProjectIntelligence,
@@ -149,6 +151,7 @@ class ProjectAnalysisEngine:
             "ownership_signals": [],
             "engineering_signals": [],
             "findings": [],
+            "project_sophistication": [],
         }
 
     @staticmethod
@@ -159,6 +162,7 @@ class ProjectAnalysisEngine:
             "ownership_signals": [],
             "engineering_signals": [],
             "findings": [],
+            "project_sophistication": [],
         }
         for result in per_project:
             if result is None:
@@ -345,10 +349,22 @@ class ProjectAnalysisEngine:
                 evidence=evidence,
             ))
 
+        # ── Sophistication ───────────────────────────────────────────────
+        raw_score = parsed.sophistication.sophistication_score
+        # Clamp defensively even though Pydantic already validates ge=0, le=100
+        clamped_score = max(0, min(100, raw_score))
+        sophistication_record = ProjectSophisticationRecord(
+            project_name=project_id,
+            sophistication_score=clamped_score,
+            sophistication_tier=score_to_tier(clamped_score),
+            sophistication_reasoning=(parsed.sophistication.sophistication_reasoning or "").strip(),
+        )
+
         return {
             "technologies": technologies,
             "competencies": competencies,
             "ownership_signals": ownership_signals,
             "engineering_signals": engineering_signals,
             "findings": findings,
+            "project_sophistication": [sophistication_record],
         }

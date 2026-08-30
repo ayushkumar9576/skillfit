@@ -433,6 +433,27 @@ class Recommendation:
 
 
 @dataclass
+class ProjectSophisticationRecord:
+    """
+    Per-project sophistication assessment, persisted in the candidate profile.
+
+    The ``sophistication_score`` (0–100) is produced by the LLM.
+    The ``sophistication_tier`` is derived deterministically by the Python
+    engine via ``score_to_tier()`` — never by the LLM.
+
+    Attributes:
+        project_name:           Title of the analyzed project.
+        sophistication_score:   0–100 holistic project complexity score.
+        sophistication_tier:    Canonical tier string (BEGINNER … INDUSTRY_GRADE).
+        sophistication_reasoning: Concise LLM justification (≤ 30 words).
+    """
+    project_name: str
+    sophistication_score: int
+    sophistication_tier: str
+    sophistication_reasoning: str = ""
+
+
+@dataclass
 class CertificationIntelligence:
     """
     Intelligence record for a professional certification.
@@ -522,6 +543,13 @@ class CandidateIntelligenceProfile:
     # Findings and recommendations
     findings: List[Finding] = field(default_factory=list)
     recommendations: List[Recommendation] = field(default_factory=list)
+
+    # Project sophistication intelligence (Phase 3 enhancement)
+    # Per-project records — populated by ProjectAnalysisEngine
+    project_sophistication: List[ProjectSophisticationRecord] = field(default_factory=list)
+    # Aggregate metrics — computed by CandidateIntelligenceAggregator
+    average_project_sophistication: float = 0.0
+    highest_project_sophistication: int = 0
 
     # Dashboard layer (derived, not set by engines directly)
     summary: CandidateSummary = field(default_factory=CandidateSummary)

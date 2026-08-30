@@ -52,6 +52,7 @@ from app.analysis.models.candidate_profile import (
     FindingType,
     IntelligenceEvidence,
     OwnershipIntelligence,
+    ProjectSophisticationRecord,
     Recommendation,
     SkillIntelligence,
     TechnologyIntelligence,
@@ -192,6 +193,7 @@ class CandidateIntelligenceAggregator:
         self._engineering_signals: List[EngineeringSignal] = []
         self._workplace_exposure: Dict[str, WorkplaceExposure] = {}
         self._findings: List[Finding] = []
+        self._project_sophistication: List[ProjectSophisticationRecord] = []
 
     # -- Public feed methods -----------------------------------------------
 
@@ -284,6 +286,12 @@ class CandidateIntelligenceAggregator:
     def add_findings(self, findings: List[Finding]) -> None:
         self._findings.extend(findings)
 
+    def add_project_sophistication(
+        self, records: List[ProjectSophisticationRecord]
+    ) -> None:
+        """Accumulate per-project sophistication records from the project engine."""
+        self._project_sophistication.extend(records)
+
     # -- Build method -------------------------------------------------------
 
     def build(self) -> CandidateIntelligenceProfile:
@@ -294,6 +302,15 @@ class CandidateIntelligenceAggregator:
         domains = self._infer_domains(competencies, technologies)
         recommendations = self._derive_recommendations()
         summary = self._build_summary(technologies, competencies, domains)
+
+        # Compute aggregate sophistication metrics
+        soph_records = self._project_sophistication
+        if soph_records:
+            avg_soph = sum(r.sophistication_score for r in soph_records) / len(soph_records)
+            high_soph = max(r.sophistication_score for r in soph_records)
+        else:
+            avg_soph = 0.0
+            high_soph = 0
 
         return CandidateIntelligenceProfile(
             technologies=technologies,
@@ -306,6 +323,9 @@ class CandidateIntelligenceAggregator:
             workplace_exposure=list(self._workplace_exposure.values()),
             findings=self._findings,
             recommendations=recommendations,
+            project_sophistication=soph_records,
+            average_project_sophistication=round(avg_soph, 2),
+            highest_project_sophistication=high_soph,
             summary=summary,
         )
 

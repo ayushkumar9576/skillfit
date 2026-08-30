@@ -377,6 +377,7 @@ def _stage_build_intelligence_profile(_db: Session, resume: ResumeFile) -> bool:
         agg.add_ownership_signals(project_dict.get("ownership_signals", []))
         agg.add_engineering_signals(project_dict.get("engineering_signals", []))
         agg.add_findings(project_dict.get("findings", []))
+        agg.add_project_sophistication(project_dict.get("project_sophistication", []))
 
         # ── Feed internship intelligence ──────────────────────────────────
         internship_result = getattr(resume, "_temp_internship_result", None)

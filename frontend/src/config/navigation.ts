@@ -40,10 +40,10 @@ export interface NavItem {
 }
 
 export const studentNavigation: NavItem[] = [
-  { label: "Upload CV",       href: "/student/resume",    icon: "UploadCloud" },
   { label: "Dashboard",       href: "/student/dashboard", icon: "LayoutDashboard" },
   { label: "CV Analysis",     href: "/student/analysis",  icon: "FileBarChart" },
   { label: "Placement Match", href: "/student/placement", icon: "Target" },
+  { label: "Upload CV",       href: "/student/resume",    icon: "UploadCloud" },
   { label: "Profile",         href: "/student/profile",   icon: "User" },
   { label: "Settings",        href: "/student/settings",  icon: "Settings" },
 ];
