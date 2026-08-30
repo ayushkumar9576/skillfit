@@ -13,6 +13,7 @@ from app.api.resume import router as resume_router
 from app.api.v1.student_resumes import router as student_resumes_router
 from app.api.v1.admin_resumes import router as admin_resumes_router
 from app.api.v1.admin_users import router as admin_users_router
+from app.api.v1.admin_import import router as admin_import_router
 from app.api.v1.profile import router as profile_router
 from app.api.v1.drives import router as drives_router
 from app.api.v1.candidate_profile import router as candidate_profile_router
@@ -61,6 +62,7 @@ app.include_router(admin_resumes_router)
 
 # Phase 3.14 — Onboarding & Dashboards
 app.include_router(admin_users_router)
+app.include_router(admin_import_router)
 app.include_router(profile_router)
 app.include_router(student_dashboard_router)
 app.include_router(admin_dashboard_router)

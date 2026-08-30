@@ -1,5 +1,6 @@
 fastapi
 uvicorn
+openpyxl
 
 # Email validation — required for Pydantic's EmailStr (Pydantic v2 requires >= 2.0.0)
 email-validator

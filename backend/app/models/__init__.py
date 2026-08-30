@@ -5,3 +5,4 @@ from app.models.drive import Drive
 from app.models.recommendation import Recommendation
 from app.models.resume_file import ResumeFile
 from app.models.candidate_intelligence_snapshot import CandidateIntelligenceSnapshotModel
+from app.models.import_audit_log import ImportAuditLog

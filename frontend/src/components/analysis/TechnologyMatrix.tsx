@@ -6,7 +6,6 @@ import StateWrapper from "./StateWrapper";
 import type { TechnologyIntelligence } from "@/types/candidate-profile";
 import DemonstrationLevelBadge from "@/components/shared/DemonstrationLevelBadge";
 import EvidenceSourceBadge from "@/components/shared/EvidenceSourceBadge";
-import { DemonstrationLevel } from "@/types/candidate-profile";
 
 interface TechnologyMatrixProps {
   technologies: TechnologyIntelligence[];
@@ -39,7 +38,7 @@ export default function TechnologyMatrix({
     if (!technologies) return [];
     
     // Filter
-    let result = technologies.filter(tech => 
+    const result = technologies.filter(tech => 
       tech.technology.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
@@ -74,7 +73,7 @@ export default function TechnologyMatrix({
     }
   };
 
-  const SortButton = ({ field, label }: { field: SortField, label: string }) => (
+  const renderSortButton = (field: SortField, label: string) => (
     <button 
       onClick={() => handleSort(field)}
       className="flex items-center gap-1 hover:text-slate-900 focus:outline-none"
@@ -123,16 +122,16 @@ export default function TechnologyMatrix({
             <thead className="bg-slate-50">
               <tr>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  <SortButton field="technology" label="Technology" />
+                  {renderSortButton("technology", "Technology")}
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  <SortButton field="level" label="Demonstration Level" />
+                  {renderSortButton("level", "Demonstration Level")}
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
                   Sources
                 </th>
                 <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-slate-500 uppercase tracking-wider">
-                  <SortButton field="evidence" label="Evidence Count" />
+                  {renderSortButton("evidence", "Evidence Count")}
                 </th>
               </tr>
             </thead>

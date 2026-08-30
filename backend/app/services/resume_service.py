@@ -38,7 +38,7 @@ import uuid
 from fastapi import HTTPException, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 from app.core.enums import ProcessingStatus, ResumeType
 from app.core.file_utils import (
     MAX_RESUMES_PER_STUDENT,
@@ -253,7 +253,7 @@ async def upload_resume(
         
     if existing_of_type:
         # Enforce 1 upload per calendar month rule
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         if existing_of_type.created_at.year == now.year and existing_of_type.created_at.month == now.month:
             logger.warning(
                 "Student %s blocked by monthly upload restriction for %s resume.",

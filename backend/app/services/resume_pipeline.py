@@ -1,23 +1,23 @@
 """
 app/services/resume_pipeline.py
 --------------------------------
-Internal Resume Processing Pipeline Orchestrator — SkillFit Pre-Phase 3.6.
+Internal Resume Processing Pipeline Orchestrator — SkillFit Phase 3.14.
 
 Purpose:
     Single authoritative orchestration point for all automated resume processing.
     Called as a FastAPI BackgroundTask immediately after a resume file is stored.
     Students never interact with this module directly.
 
-Pipeline stages (current + future):
-    1. [3.3 - ACTIVE]  Text extraction       — extract_resume_service
-    2. [3.4 - ACTIVE]  Section detection     — section_service
-    3. [3.7 - ACTIVE]  Project analysis      — project_analysis_engine
-    4. [3.8 - FUTURE]  Internship analysis   — placeholder
-    5. [3.9 - FUTURE]  Certification analysis — placeholder
-    6. [3.10 - FUTURE] Skill analysis        — placeholder
-    7. [3.11 - FUTURE] Readiness engine      — placeholder
-    8. [3.6 - FUTURE]  LLM integration       — placeholder
-    9. [3.12 - FUTURE] Analysis persistence  — placeholder
+Pipeline stages (all ACTIVE):
+    1. [3.3]  Text extraction        — extraction_service
+    2. [3.4]  Section detection      — section_service
+    3. [3.7]  Project analysis       — ProjectAnalysisEngine → raw intelligence dict
+    4. [3.8]  Internship analysis    — InternshipAnalysisEngine → raw intelligence dict
+    5. [3.9]  Certification analysis — CertificationAnalysisEngine → raw intelligence dict
+    6. [3.10] Intelligence profile   — CandidateIntelligenceAggregator.build() +
+                                       SkillVerificationEngine → _temp_intelligence_profile
+    7. [3.11] Readiness engine       — ReadinessEngine consumes _temp_intelligence_profile
+    8. [3.12] Analysis persistence   — CandidateIntelligenceSnapshot written to DB
 
 Design contract:
     - This module owns NO HTTP logic (no FastAPI imports used for routing).
@@ -34,17 +34,20 @@ Design contract:
 Security:
     - No student-facing inputs are accepted.
     - ResumeFile record is loaded by UUID (primary key); ownership is implicit.
-    - Stage 3 (project analysis) makes authenticated outbound LLM calls. The
-      OPENAI_API_KEY is read only by the provider layer and is never logged; if
-      it is absent/invalid the stage skips gracefully (LLMConfigurationError is
-      caught) rather than failing the resume. No other stage makes external
-      calls yet.
+    - Stages 3-5 make authenticated outbound LLM calls. The API key is read
+      only by the provider layer and is never logged; if it is absent/invalid
+      the stage skips gracefully (LLMConfigurationError is caught) rather than
+      failing the resume.
 """
 
 import logging
 import uuid
 from datetime import datetime, timezone
-from app.services.resume.project_extractor import get_project_extractor
+from pathlib import Path
+from dataclasses import asdict
+import json
+from typing import Any, Dict, List
+
 from sqlalchemy.orm import Session
 
 from app.core.enums import ProcessingStatus
@@ -53,11 +56,25 @@ from app.models.resume_file import ResumeFile
 from app.services import extraction_service
 from app.services.resume.section_service import detect_sections_from_text
 
-import json
-from pathlib import Path
-from dataclasses import asdict
-
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Debug output helper — lazy, never runs at import time (Bug #4 fix)
+# ---------------------------------------------------------------------------
+
+
+def _get_debug_dir() -> Path:
+    """
+    Return (and create) the debug output directory only when actually needed.
+
+    Calling mkdir() at module level caused startup crashes on any deployment
+    where the working directory is read-only (Docker, serverless, CI).
+    This helper is called lazily inside individual stages instead.
+    """
+    debug_dir = Path("DEBUG/results")
+    debug_dir.mkdir(parents=True, exist_ok=True)
+    return debug_dir
 
 
 # ---------------------------------------------------------------------------
@@ -170,31 +187,23 @@ def _stage_detect_sections(db: Session, resume: ResumeFile) -> bool:
 
 
 # ---------------------------------------------------------------------------
-# Stage 3 — Project Analysis (Phase 3.7, ACTIVE).
-# Stages 4–9 remain placeholders (filled in during Phases 3.8–3.11, 3.6, 3.12).
+# Stage 3 — Project Analysis (Phase 3.7, ACTIVE)
 # ---------------------------------------------------------------------------
-
-debug_dir = Path("DEBUG/results")
-debug_dir.mkdir(parents=True, exist_ok=True)
 
 
 def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
     """
     Stage 3 — Project Analysis Engine (Phase 3.7).
 
-    Rule-based extraction of discrete projects from the RAW extracted text,
-    followed by ONE evidence-based LLM analysis call per project. Produces
-    in-memory ``ProjectIntelligenceReport`` artifacts; persistence is deferred
-    to Phase 3.12, so the outcome is logged rather than stored.
+    Calls ProjectAnalysisEngine.analyze() which returns a dict containing
+    TechnologyIntelligence, CompetencyIntelligence, OwnershipIntelligence,
+    EngineeringSignal, and Finding objects ready to be fed into the
+    CandidateIntelligenceAggregator in Stage 6.
 
-    Best-effort / non-fatal: because nothing is persisted yet, a failure here —
-    including a missing / invalid LLM key — must NOT fail the whole resume. It
-    is logged and the pipeline proceeds. (Failure semantics will be revisited
-    when persistence lands in 3.12.)
+    Best-effort / non-fatal: a failure here must NOT fail the whole resume.
 
     Returns:
-        Always True (non-fatal). Skips cleanly when there is no extracted text,
-        and skips gracefully when no LLM key is configured.
+        Always True (non-fatal).
     """
     if not resume.extracted_text:
         logger.warning(
@@ -203,62 +212,37 @@ def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
         )
         return True
 
-    # Lazy imports: keep app boot and keyless environments free of the LLM /
-    # provider stack until project analysis actually runs.
     from app.analysis.engines.project_analysis_engine import ProjectAnalysisEngine
     from app.services.llm.exceptions import LLMConfigurationError
 
     try:
-        extractor = get_project_extractor("rule_based")
-        extraction = extractor.extract(resume.extracted_text)
-
-        print("\n===== PROJECT EXTRACTION =====")
-        print(f"Projects found: {len(extraction.projects)}")
-
-        for i, p in enumerate(extraction.projects):
-            print(f"Project {i+1}: {p.title}")
-
-        print("==============================\n")
-
         engine = ProjectAnalysisEngine()
-        result = engine.analyze(
+        # Returns dict: {technologies, competencies, ownership_signals, engineering_signals, findings}
+        result_dict: Dict[str, Any] = engine.analyze(
             resume_id=str(resume.id), raw_text=resume.extracted_text
         )
-        with open(debug_dir / "debug_project.json", "w", encoding="utf-8") as f:
-            json.dump(
-                asdict(result),
-                f,
-                indent=2,
-                ensure_ascii=False,
-            )
-        
-        # Temp save for downstream engines until Phase 3.12 persistence
-        setattr(resume, "_temp_project_result", result)
-
-        print("\n===== PROJECT ANALYSIS RESULT =====")
-        print(f"Total Projects: {result.total_projects_count}")
-        print(f"Reports Generated: {len(result.reports)}")
-
-        for i, report in enumerate(result.reports):
-            print(f"Report {i+1}")
-
-        print("===================================\n")
+        # Store the raw intelligence dict for Stage 6 (CandidateIntelligenceAggregator)
+        setattr(resume, "_temp_project_dict", result_dict)
+        logger.info(
+            "Pipeline Stage 3 (project analysis) completed: resume_id=%s "
+            "technologies=%d competencies=%d findings=%d",
+            resume.id,
+            len(result_dict.get("technologies", [])),
+            len(result_dict.get("competencies", [])),
+            len(result_dict.get("findings", [])),
+        )
         return True
     except LLMConfigurationError as exc:
         logger.warning(
             "Pipeline Stage 3 (project analysis) skipped — LLM not configured "
-            "(resume_id=%s): %s: %s",
-            resume.id,
-            type(exc).__name__,
-            exc,
+            "(resume_id=%s): %s",
+            resume.id, exc,
         )
         return True
     except Exception as exc:
         logger.error(
             "Pipeline Stage 3 (project analysis) error (non-fatal): resume_id=%s %s: %s",
-            resume.id,
-            type(exc).__name__,
-            exc,
+            resume.id, type(exc).__name__, exc,
         )
         return True
 
@@ -266,8 +250,10 @@ def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
 def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
     """
     Stage 4 — Internship Analysis Engine (Phase 3.8).
-    
-    Like project analysis, this is best-effort and non-fatal.
+
+    Calls InternshipAnalysisEngine.analyze() and stores the raw intelligence
+    dict as _temp_internship_dict for Stage 6 (CandidateIntelligenceAggregator).
+    Best-effort / non-fatal.
     """
     if not resume.extracted_text:
         logger.warning(
@@ -284,56 +270,31 @@ def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
         extractor = get_internship_extractor("rule_based")
         extraction_result = extractor.extract(resume.extracted_text)
 
-        print("\n===== INTERNSHIP EXTRACTION =====")
-        print(f"Internships found: {len(extraction_result.internships)}")
-
-        for i, internship in enumerate(extraction_result.internships):
-            print(f"Internship {i+1}:")
-            print(f"Role: {internship.role}")
-            print(f"Organization: {internship.organization}")
-
-        print("=================================\n")
-        
         engine = InternshipAnalysisEngine()
         result = engine.analyze(
             resume_id=str(resume.id), internships=extraction_result.internships
         )
-        with open(debug_dir / "debug_internship.json", "w", encoding="utf-8") as f:
-            json.dump(
-                asdict(result),
-                f,
-                indent=2,
-                ensure_ascii=False,
-            )
-
-        # Temp save for downstream engines until Phase 3.12 persistence
         setattr(resume, "_temp_internship_result", result)
-
-        print("\n===== INTERNSHIP ANALYSIS RESULT =====")
-        print(f"Total Internships: {result.total_internships_count}")
-        print(f"Reports Generated: {len(result.reports)}")
-
-        for i, report in enumerate(result.reports):
-            print(f"Report {i+1}")
-
-        print("=====================================\n")
-
+        logger.info(
+            "Pipeline Stage 4 (internship analysis) completed: resume_id=%s "
+            "technologies=%d competencies=%d findings=%d",
+            resume.id,
+            len(result.technologies),
+            len(result.competencies),
+            len(result.findings),
+        )
         return True
     except LLMConfigurationError as exc:
         logger.warning(
             "Pipeline Stage 4 (internship analysis) skipped — LLM not configured "
-            "(resume_id=%s): %s: %s",
-            resume.id,
-            type(exc).__name__,
-            exc,
+            "(resume_id=%s): %s",
+            resume.id, exc,
         )
         return True
     except Exception as exc:
         logger.error(
             "Pipeline Stage 4 (internship analysis) error (non-fatal): resume_id=%s %s: %s",
-            resume.id,
-            type(exc).__name__,
-            exc,
+            resume.id, type(exc).__name__, exc,
         )
         return True
 
@@ -341,8 +302,9 @@ def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
 def _stage_certification_analysis(_db: Session, resume: ResumeFile) -> bool:
     """
     Stage 5 — Certification Analysis Engine (Phase 3.9).
-    
-    Rule-based extraction of certifications followed by batched LLM analysis.
+
+    Calls CertificationAnalysisEngine.analyze() and stores the raw intelligence
+    dict as _temp_certification_dict for Stage 6 (CandidateIntelligenceAggregator).
     Best-effort / non-fatal.
     """
     if not resume.extracted_text:
@@ -360,109 +322,119 @@ def _stage_certification_analysis(_db: Session, resume: ResumeFile) -> bool:
         extractor = get_certification_extractor()
         extraction_result = extractor.extract(resume.extracted_text)
 
-        print("\n===== CERTIFICATION EXTRACTION =====")
-        print(f"Certifications found: {len(extraction_result.certifications)}")
-
-        for i, cert in enumerate(extraction_result.certifications):
-            print(f"Cert {i+1}: {cert.certification_name} (Provider: {cert.issuer})")
-
-        print("====================================\n")
-        
         engine = CertificationAnalysisEngine()
         result = engine.analyze(
             resume_id=str(resume.id), certifications=extraction_result.certifications
         )
-        with open(debug_dir / "debug_certification.json", "w", encoding="utf-8") as f:
-            json.dump(
-                asdict(result),
-                f,
-                indent=2,
-                ensure_ascii=False,
-            )
-
-        # Temp save for downstream engines until Phase 3.12 persistence
         setattr(resume, "_temp_certification_result", result)
-
-        print("\n===== CERTIFICATION ANALYSIS RESULT =====")
-        print(f"Total Certifications: {result.total_certifications_count}")
-        print(f"Reports Generated: {len(result.reports)}")
-
-        for i, report in enumerate(result.reports):
-            print(f"Report {i+1}: {report.certification_name} ({report.provider_tier})")
-
-        print("=========================================\n")
-
+        logger.info(
+            "Pipeline Stage 5 (certification analysis) completed: resume_id=%s "
+            "certifications=%d intelligence=%d",
+            resume.id,
+            len(extraction_result.certifications),
+            len(result.intelligence),
+        )
         return True
     except LLMConfigurationError as exc:
         logger.warning(
             "Pipeline Stage 5 (certification analysis) skipped — LLM not configured "
-            "(resume_id=%s): %s: %s",
-            resume.id,
-            type(exc).__name__,
-            exc,
+            "(resume_id=%s): %s",
+            resume.id, exc,
         )
         return True
     except Exception as exc:
         logger.error(
             "Pipeline Stage 5 (certification analysis) error (non-fatal): resume_id=%s %s: %s",
-            resume.id,
-            type(exc).__name__,
-            exc,
+            resume.id, type(exc).__name__, exc,
         )
         return True
 
 
-def _stage_skill_analysis(_db: Session, resume: ResumeFile) -> bool:
+def _stage_build_intelligence_profile(_db: Session, resume: ResumeFile) -> bool:
     """
-    Stage 6 — Evidence-Based Skill Engine (Phase 3.10).
-    Aggregates skills from Projects, Internships, and Certifications.
+    Stage 6 — Build CandidateIntelligenceProfile (Phase 3.10).
+
+    Feeds all intelligence dicts from Stages 3-5 into
+    CandidateIntelligenceAggregator, then runs SkillVerificationEngine
+    on the resulting profile to populate verified skills.
+
+    Stores the finished profile as _temp_intelligence_profile so that
+    Stage 7 (ReadinessEngine) and Stage 8 (persistence) can consume it.
+
+    This is a CRITICAL stage — returns False on failure to abort the pipeline.
     """
     try:
-        from app.analysis.engines.skill_analysis_engine import SkillAnalysisEngine
-        
-        project_result = getattr(resume, "_temp_project_result", None)
+        from app.analysis.engines.candidate_intelligence import CandidateIntelligenceAggregator
+        from app.analysis.engines.skill_analysis_engine import SkillVerificationEngine
+        from app.analysis.models.candidate_profile import ProfileMetadata
+
+        agg = CandidateIntelligenceAggregator()
+
+        # ── Feed project intelligence ─────────────────────────────────────
+        project_dict: Dict[str, Any] = getattr(resume, "_temp_project_dict", {}) or {}
+        agg.add_technologies(project_dict.get("technologies", []))
+        agg.add_competencies(project_dict.get("competencies", []))
+        agg.add_ownership_signals(project_dict.get("ownership_signals", []))
+        agg.add_engineering_signals(project_dict.get("engineering_signals", []))
+        agg.add_findings(project_dict.get("findings", []))
+
+        # ── Feed internship intelligence ──────────────────────────────────
         internship_result = getattr(resume, "_temp_internship_result", None)
-        certification_result = getattr(resume, "_temp_certification_result", None)
-        
-        p_reports = project_result.reports if project_result else []
-        i_reports = internship_result.reports if internship_result else []
-        c_reports = certification_result.reports if certification_result else []
-        
-        temp_sections = getattr(resume, "_temp_sections_result", {})
-        self_reported = temp_sections.get("skills", "")
-        
-        engine = SkillAnalysisEngine()
-        result = engine.analyze(
-            project_reports=p_reports,
-            internship_reports=i_reports,
-            certification_reports=c_reports,
-            self_reported_skills_text=self_reported
+        if internship_result:
+            agg.add_technologies(internship_result.technologies)
+            agg.add_competencies(internship_result.competencies)
+            agg.add_ownership_signals(internship_result.ownership_signals)
+            agg.add_engineering_signals(internship_result.engineering_signals)
+            agg.add_workplace_exposure(internship_result.workplace_exposure)
+            agg.add_findings(internship_result.findings)
+
+        # ── Feed certification intelligence ───────────────────────────────
+        cert_result = getattr(resume, "_temp_certification_result", None)
+        if cert_result:
+            agg.add_certifications(cert_result.intelligence)
+
+        # ── Build the profile ────────────────────────────────────────────
+        profile = agg.build()
+
+        # ── Run skill verification over the assembled profile ─────────────
+        temp_sections = getattr(resume, "_temp_sections_result", {}) or {}
+        self_reported_raw = temp_sections.get("skills", "")
+        self_reported_list = [
+            s.strip() for s in (self_reported_raw or "").split(",") if s.strip()
+        ] if self_reported_raw else []
+
+        skill_engine = SkillVerificationEngine()
+        verified_skills = skill_engine.verify(profile, self_reported_skills=self_reported_list)
+        # Attach verified skills back onto the profile (profile.skills is already
+        # populated by aggregator; override with the richer verification pass)
+        profile.skills = verified_skills
+
+        # ── Attach metadata ───────────────────────────────────────────────
+        profile.metadata = ProfileMetadata(
+            total_projects_analyzed=len(project_dict.get("technologies", [])),
+            total_internships_analyzed=internship_result.total_internships_count if internship_result else 0,
+            total_certifications_analyzed=cert_result.total_certifications_count if cert_result else 0,
+            analysis_version="3.14.0",
         )
-        
-        with open(debug_dir / "debug_skill.json", "w", encoding="utf-8") as f:
-            json.dump(
-                asdict(result),
-                f,
-                indent=2,
-                ensure_ascii=False,
-            )
-            
-        print("\n===== SKILL ANALYSIS RESULT =====")
-        print(f"Total Skills: {result.total_skills_count}")
-        for i, skill in enumerate(result.skills):
-            print(f"Skill {i+1}: {skill.skill_name}")
-            print(f"  Confidence: {skill.confidence_score} ({skill.confidence_level})")
-            print(f"  Depth: {skill.skill_depth}")
-            print(f"  Hiring Signal: {skill.hiring_signal}")
-        print("=================================\n")
-        
-        setattr(resume, "_temp_skill_result", result)
+
+        # ── Store for downstream stages ───────────────────────────────────
+        setattr(resume, "_temp_intelligence_profile", profile)
+
+        logger.info(
+            "Pipeline Stage 6 (intelligence profile) completed: resume_id=%s "
+            "skills=%d technologies=%d domains=%d findings=%d",
+            resume.id,
+            len(profile.skills),
+            len(profile.technologies),
+            len(profile.domains),
+            len(profile.findings),
+        )
         return True
     except Exception as exc:
         logger.error(
-            "Pipeline Stage 6 (skill analysis) FAILED: resume_id=%s error=%s",
-            resume.id,
-            exc,
+            "Pipeline Stage 6 (intelligence profile build) FAILED: resume_id=%s error=%s",
+            resume.id, exc,
+            exc_info=True,
         )
         return False
 
@@ -506,7 +478,7 @@ def _stage_readiness_engine(db: Session, resume: ResumeFile) -> bool:
 
 def _stage_persist_analysis(db: Session, resume: ResumeFile) -> bool:
     """
-    Stage 9 — Analysis Persistence (Phase 3.12).
+    Stage 8 — Analysis Persistence (Phase 3.12).
 
     Persists all analysis engine outputs into the database within a single
     transaction boundary. This stage calls db.add() only — it does NOT
@@ -592,14 +564,14 @@ def process_resume_pipeline(resume_id: uuid.UUID) -> None:
 
         # 3. Execute stages in order
         stages = [
-            ("Stage 1: Text Extraction",       _stage_extract_text),
-            ("Stage 2: Section Detection",      _stage_detect_sections),
-            ("Stage 3: Project Analysis",       _stage_project_analysis),
-            ("Stage 4: Internship Analysis",    _stage_internship_analysis),
-            ("Stage 5: Certification Analysis", _stage_certification_analysis),
-            ("Stage 6: Skill Analysis",         _stage_skill_analysis),
-            ("Stage 7: Readiness Engine",       _stage_readiness_engine),
-            ("Stage 8: Analysis Persistence",   _stage_persist_analysis),
+            ("Stage 1: Text Extraction",           _stage_extract_text),
+            ("Stage 2: Section Detection",          _stage_detect_sections),
+            ("Stage 3: Project Analysis",           _stage_project_analysis),
+            ("Stage 4: Internship Analysis",        _stage_internship_analysis),
+            ("Stage 5: Certification Analysis",     _stage_certification_analysis),
+            ("Stage 6: Intelligence Profile Build", _stage_build_intelligence_profile),
+            ("Stage 7: Readiness Engine",           _stage_readiness_engine),
+            ("Stage 8: Analysis Persistence",       _stage_persist_analysis),
         ]
 
         for stage_name, stage_fn in stages:

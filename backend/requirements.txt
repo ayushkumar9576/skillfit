@@ -39,3 +39,6 @@ openai>=1.0
 
 # Official Google GenAI SDK (Phase 3.6.1 Gemini integration)
 google-genai
+
+# Excel parsing (Bulk Import Phase)
+openpyxl

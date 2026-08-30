@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Zap } from "lucide-react";
+import { iconMap } from "@/config/navigation";
 import type { NavItem } from "@/config/navigation";
 
 interface SidebarProps {
@@ -27,7 +28,8 @@ export default function Sidebar({ navigation, onItemClick }: SidebarProps) {
             <ul role="list" className="-mx-2 space-y-1">
               {navigation.map((item) => {
                 const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
-                const Icon = item.icon;
+                // Resolve the icon component from the string name — safe in a Client Component
+                const Icon = item.icon ? iconMap[item.icon] : undefined;
                 return (
                   <li key={item.label}>
                     <Link

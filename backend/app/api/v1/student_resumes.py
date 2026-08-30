@@ -166,6 +166,15 @@ _OWNERSHIP_TO_STRENGTH = {
     "OBSERVED": ExperienceStrengthLabel.weak,
 }
 
+# OwnershipLevel → numeric strength score (0–100)
+_OWNERSHIP_TO_STRENGTH_SCORE = {
+    "LED": 85,
+    "OWNED": 80,
+    "IMPLEMENTED": 65,
+    "CONTRIBUTED": 55,
+    "OBSERVED": 35,
+}
+
 
 # ---------------------------------------------------------------------------
 # Upload
@@ -722,15 +731,3 @@ def get_resume_profile(
     # Return the 'profile' dict directly from the snapshot JSON payload
     return snapshot.profile_json.get("profile", {})
 
-
-# ---------------------------------------------------------------------------
-# Module-level constant — used in get_internships internship strength mapping
-# ---------------------------------------------------------------------------
-
-_OWNERSHIP_TO_STRENGTH_SCORE = {
-    "LED": 85,
-    "OWNED": 80,
-    "IMPLEMENTED": 65,
-    "CONTRIBUTED": 55,
-    "OBSERVED": 35,
-}
