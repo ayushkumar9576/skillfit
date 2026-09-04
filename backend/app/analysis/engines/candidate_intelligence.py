@@ -87,8 +87,15 @@ _DEMO_LEVEL_ORDER = [
     DemonstrationLevel.ARCHITECTED.value,
 ]
 
-# Finding severities that trigger automatic recommendations
-_RECOMMENDATION_SEVERITIES = {FindingSeverity.HIGH.value, FindingSeverity.CRITICAL.value}
+# Finding severities that trigger automatic recommendations.
+# Includes MEDIUM so that any actionable weakness / missing signal reaches the roadmap,
+# not just catastrophic gaps. Without MEDIUM, profiles whose LLM findings are all MEDIUM
+# severity produce Improvement Areas items but empty Roadmap and Recommendations panels.
+_RECOMMENDATION_SEVERITIES = {
+    FindingSeverity.MEDIUM.value,
+    FindingSeverity.HIGH.value,
+    FindingSeverity.CRITICAL.value,
+}
 
 # Domain → competency mapping for domain inference
 _DOMAIN_COMPETENCY_MAP: Dict[str, List[str]] = {
@@ -410,11 +417,17 @@ class CandidateIntelligenceAggregator:
 
     def _derive_recommendations(self) -> List[Recommendation]:
         """
-        Deterministically generate Recommendations from HIGH/CRITICAL findings.
+        Deterministically generate Recommendations from MEDIUM/HIGH/CRITICAL findings.
 
-        Only WEAKNESS and MISSING_SIGNAL findings of HIGH or CRITICAL severity
-        produce recommendations. The recommendation content is derived from the
-        finding title and description — no LLM involved.
+        WEAKNESS and MISSING_SIGNAL findings of MEDIUM, HIGH, or CRITICAL severity
+        produce recommendations. LOW-severity findings are omitted as noise.
+        The recommendation content is derived from the finding title and description
+        — no LLM involved.
+
+        Note: MEDIUM is intentionally included. The LLM commonly assigns MEDIUM to
+        genuine gaps in student profiles; excluding MEDIUM would leave the Improvement
+        Roadmap and Actionable Recommendations panels empty for those candidates even
+        when Improvement Areas shows populated findings.
         """
         recommendations: List[Recommendation] = []
         for finding in self._findings:

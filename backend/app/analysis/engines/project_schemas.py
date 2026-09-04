@@ -225,12 +225,23 @@ class SophisticationAssessmentSchema(BaseModel):
         - sophistication_tier from the score (BEGINNER … INDUSTRY_GRADE).
 
     Scale:
-        0-20:  Very basic tutorial / introductory project.
-        21-40: Typical early undergraduate project (CRUD / simple structure).
-        41-60: Strong intermediate student project.
-        61-80: Advanced final-year engineering project.
-        81-90: Near industry-ready project.
-        91-100: Industry-grade implementation.
+        0-20:   Tutorial, classroom exercise, or introductory implementation.
+        21-40:  Basic CRUD application or simple academic project.
+                Limited architecture, integrations, or technical depth.
+        41-60:  Intermediate project with multiple interacting components.
+                Demonstrates independent problem-solving and moderate engineering complexity.
+        61-75:  Advanced engineering project demonstrating substantial technical depth.
+                May include machine learning, distributed systems, advanced algorithms,
+                simulation, optimization, or significant full-stack implementation.
+        76-85:  Production-oriented system demonstrating deployment, automation,
+                scalability considerations, monitoring, CI/CD, infrastructure,
+                integrations, versioning, security, or operational concerns.
+        86-95:  Near-industry system demonstrating strong architecture,
+                reliability, maintainability, extensibility, testing strategy,
+                and mature engineering practices.
+        96-100: Exceptional industry-grade implementation.
+                Reserved for rare projects with outstanding architectural sophistication,
+                production maturity, operational excellence, and substantial real-world impact.
     """
     model_config = ConfigDict(extra="ignore")
 
