@@ -28,7 +28,7 @@ from app.core.rate_limit import limiter
 
 app = FastAPI(
     title="SkillFit API",
-    version="3.13.0",
+    version="4.1.0",
     description=(
         "AI-powered student placement intelligence platform. "
         "Resume processing (extraction, section detection, analysis) is triggered manually "
@@ -67,8 +67,11 @@ app.include_router(profile_router)
 app.include_router(student_dashboard_router)
 app.include_router(admin_dashboard_router)
 app.include_router(faculty_dashboard_router)
-app.include_router(drives_router)
 app.include_router(candidate_profile_router)
+
+# Phase 4.1 — Drive Intelligence Foundation
+# drives_router now includes Drive CRUD, lifecycle management, and snapshot retrieval.
+app.include_router(drives_router)
 
 
 @app.get("/health", tags=["Health"])

@@ -7,6 +7,10 @@ All modules (models, schemas, services, dependencies, routes) must import
 enums from here — never redefine them elsewhere. This prevents circular
 imports because this file has zero internal application imports; it only
 uses the Python standard library.
+
+Phase history:
+    Phase 2-3 — UserRole, AnalysisStatus, ResumeType, ProcessingStatus, etc.
+    Phase 4.1 — DriveStatus, DriveSourceType
 """
 
 import enum
@@ -84,3 +88,35 @@ class ProcessingStatus(str, enum.Enum):
     processing = "processing"
     completed  = "completed"
     failed     = "failed"
+
+
+class DriveStatus(str, enum.Enum):
+    """
+    Lifecycle status of a Placement Drive entity.
+
+    Phase 4.1 — foundation lifecycle only. Intelligence generation
+    transitions (analyzing, intelligence_ready) will be added in Phase 4.3.
+
+    Transitions:
+        draft  → Drive created; not yet published to candidates.
+        active → Drive is live and accepting candidate interest.
+        closed → Drive has concluded; no further activity expected.
+    """
+    draft  = "draft"
+    active = "active"
+    closed = "closed"
+
+
+class DriveSourceType(str, enum.Enum):
+    """
+    Describes how the Placement Drive record was created.
+
+    Phase 4.1 — manual only. Parsed (from JD PDF/text) will be added in
+    Phase 4.2 when the Drive Ingestion pipeline is implemented.
+
+    Values:
+        manual → Drive data was entered by an admin through the API.
+        parsed → Drive data was extracted from a raw job description (Phase 4.2+).
+    """
+    manual = "manual"
+    parsed = "parsed"
