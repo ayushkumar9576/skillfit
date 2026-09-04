@@ -9,6 +9,8 @@ Phase history:
                 for entity lifecycle tracking.
                 Added `drive_snapshots` relationship for the Drive Intelligence
                 persistence layer.
+    Phase 4.2 — Added `drive_sources` relationship for the Drive Ingestion
+                pipeline (versioned raw & normalised source content).
 
 Design:
     Drive is the source entity equivalent of ResumeFile on the Candidate side.
@@ -16,9 +18,9 @@ Design:
 
         Drive
           ↓
-        DriveSnapshotModel   (Phase 4.1 — storage foundation)
+        DriveSource          (Phase 4.2 — versioned source ingestion)
           ↓
-        DriveAnalysis        (Phase 4.3 — intelligence pipeline tracking)
+        DriveSnapshotModel   (Phase 4.3 — intelligence pipeline output)
 """
 
 from datetime import date, datetime
@@ -85,6 +87,14 @@ class Drive(Base):
         "DriveSnapshotModel",
         back_populates="drive",
         cascade="all, delete-orphan",
+    )
+
+    # Phase 4.2 — Drive Ingestion versioned source records
+    drive_sources: Mapped[List["DriveSource"]] = relationship(
+        "DriveSource",
+        back_populates="drive",
+        cascade="all, delete-orphan",
+        order_by="DriveSource.version",
     )
 
     def __repr__(self) -> str:

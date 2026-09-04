@@ -28,12 +28,12 @@ from app.core.rate_limit import limiter
 
 app = FastAPI(
     title="SkillFit API",
-    version="4.1.0",
+    version="4.2.0",
     description=(
         "AI-powered student placement intelligence platform. "
-        "Resume processing (extraction, section detection, analysis) is triggered manually "
-        "by Admins via POST /api/v1/admin/resumes/{id}/analyze after a student uploads. "
-        "Students view analysis results via GET /api/v1/resumes/{id}/readiness etc."
+        "Phase 4.2: Drive Ingestion & Parsing — PDF and text job descriptions can be "
+        "uploaded, validated, extracted, normalised, and persisted as versioned DriveSource "
+        "records. Phase 4.3 will add intelligence generation from parsed content."
     ),
 )
 

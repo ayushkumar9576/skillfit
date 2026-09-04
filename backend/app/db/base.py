@@ -9,3 +9,5 @@ from app.models.resume_file import ResumeFile
 from app.models.candidate_intelligence_snapshot import CandidateIntelligenceSnapshotModel
 # Phase 4.1 — Drive Intelligence persistence layer
 from app.models.drive_snapshot import DriveSnapshotModel
+# Phase 4.2 — Drive Ingestion versioned source layer
+from app.models.drive_source import DriveSource

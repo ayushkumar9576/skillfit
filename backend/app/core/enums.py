@@ -11,6 +11,7 @@ uses the Python standard library.
 Phase history:
     Phase 2-3 — UserRole, AnalysisStatus, ResumeType, ProcessingStatus, etc.
     Phase 4.1 — DriveStatus, DriveSourceType
+    Phase 4.2 — DriveSourceFormat, DriveSourceProcessingStatus, DriveSourceValidationStatus
 """
 
 import enum
@@ -120,3 +121,51 @@ class DriveSourceType(str, enum.Enum):
     """
     manual = "manual"
     parsed = "parsed"
+
+
+class DriveSourceFormat(str, enum.Enum):
+    """
+    Format of the raw job description source.
+
+    Phase 4.2 — Ingestion pipeline format tracking.
+
+    Values:
+        pdf  → Source was uploaded as a PDF file.
+        text → Source was submitted as raw text (manual entry).
+    """
+    pdf  = "pdf"
+    text = "text"
+
+
+class DriveSourceProcessingStatus(str, enum.Enum):
+    """
+    Lifecycle status of a DriveSource through the ingestion pipeline.
+
+    Phase 4.2 — Ingestion pipeline tracking.
+
+    Transitions:
+        uploaded   → File/text received and stored; ingestion not yet started.
+        processing → Extraction and normalization are actively running.
+        completed  → All pipeline stages finished successfully.
+        failed     → One or more pipeline stages encountered an error.
+    """
+    uploaded   = "uploaded"
+    processing = "processing"
+    completed  = "completed"
+    failed     = "failed"
+
+
+class DriveSourceValidationStatus(str, enum.Enum):
+    """
+    Validation status of the ingested source content.
+
+    Phase 4.2 — Source content validation tracking.
+
+    Values:
+        pending → Validation has not yet been performed.
+        valid   → Source passed all validation checks.
+        invalid → Source failed one or more validation checks.
+    """
+    pending = "pending"
+    valid   = "valid"
+    invalid = "invalid"
