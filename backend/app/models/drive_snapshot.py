@@ -25,7 +25,7 @@ Naming symmetry with Candidate side:
 
 import uuid
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID, JSONB
@@ -36,6 +36,8 @@ from app.db.database import Base
 
 if TYPE_CHECKING:
     from app.models.drive import Drive
+    from app.models.drive_analysis import DriveAnalysis
+    from app.models.drive_source import DriveSource
 
 
 class DriveSnapshotModel(Base):
@@ -67,11 +69,38 @@ class DriveSnapshotModel(Base):
         index=True,
     )
 
-    # Schema version of DriveIntelligenceProfile (e.g. "1.0")
+    # Phase 4.3 — Provenance: the exact DriveSource analyzed
+    source_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("drive_sources.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Phase 4.3 — Provenance: the analysis run that produced this snapshot
+    analysis_id = Column(
+        UUID(as_uuid=True),
+        ForeignKey("drive_analyses.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+
+    # Schema version of DriveIntelligenceProfile (e.g. "v1.0")
     snapshot_version = Column(String, nullable=False)
 
     # Version of the analysis pipeline that produced it (e.g. "4.3.0")
     analysis_version = Column(String, nullable=False)
+
+    # Phase 4.3 — LLM prompt version used (e.g. "v1")
+    prompt_version = Column(String(20), nullable=True)
+
+    # Phase 4.3 — LLM model used (e.g. "gemini-1.5-pro")
+    model_name = Column(String(100), nullable=True)
+
+    # Phase 4.3 — Intelligence schema version (e.g. "v1.0")
+    # Denormalized from DriveIntelligenceProfile.intelligence_schema_version
+    # for fast querying without deserializing the JSONB payload.
+    intelligence_schema_version = Column(String(20), nullable=True)
 
     # The full serialized DriveIntelligenceProfile inside a metadata wrapper
     intelligence_payload = Column(JSONB, nullable=False)
@@ -88,6 +117,14 @@ class DriveSnapshotModel(Base):
     # Bidirectional relationship back to Drive
     drive: Mapped["Drive"] = relationship("Drive", back_populates="drive_snapshots")
 
+    # Phase 4.3 — back-reference to the analysis that created this snapshot
+    analysis: Mapped[Optional["DriveAnalysis"]] = relationship(
+        "DriveAnalysis",
+        foreign_keys="DriveSnapshotModel.analysis_id",
+        back_populates="snapshot",
+        uselist=False,
+    )
+
     __table_args__ = (
         # Composite index to optimize get_latest_snapshot() query
         # (mirrors ix_candidate_intelligence_snapshots_resume_latest)
@@ -97,6 +134,12 @@ class DriveSnapshotModel(Base):
             "created_at",
             postgresql_using="btree",
             postgresql_ops={"created_at": "DESC NULLS LAST"},
+        ),
+        # GIN index on JSONB for high-performance Phase 5 retrieval
+        Index(
+            "ix_drive_snapshots_intelligence",
+            "intelligence_payload",
+            postgresql_using="gin",
         ),
     )
 

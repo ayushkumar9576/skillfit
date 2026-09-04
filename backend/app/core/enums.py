@@ -169,3 +169,273 @@ class DriveSourceValidationStatus(str, enum.Enum):
     pending = "pending"
     valid   = "valid"
     invalid = "invalid"
+
+
+# ===========================================================================
+# Phase 4.3 — Drive Intelligence Engine Enums
+# ===========================================================================
+
+
+class DriveAnalysisStatus(str, enum.Enum):
+    """
+    Lifecycle status of a DriveAnalysis execution run.
+
+    Transitions:
+        pending   → Analysis record created; engine not yet started.
+        running   → Intelligence Engine is actively processing.
+        completed → Engine ran successfully; DriveSnapshot was created.
+        failed    → Engine or Governance Layer raised an unrecoverable error.
+    """
+    pending   = "pending"
+    running   = "running"
+    completed = "completed"
+    failed    = "failed"
+
+
+class TechnologyCategory(str, enum.Enum):
+    """
+    Canonical taxonomy for technology classification in Drive Intelligence.
+
+    Governs TechnologyIntelligence.category.  No LLM output may use a value
+    outside this set; the Governance Layer treats unknown values as fatal.
+    """
+    programming_language = "PROGRAMMING_LANGUAGE"
+    framework            = "FRAMEWORK"
+    database             = "DATABASE"
+    cloud_platform       = "CLOUD_PLATFORM"
+    devops_tool          = "DEVOPS_TOOL"
+    data_technology      = "DATA_TECHNOLOGY"
+    testing_technology   = "TESTING_TECHNOLOGY"
+    other                = "OTHER"
+
+
+class ProfessionalDomainType(str, enum.Enum):
+    """
+    Taxonomy for overarching role business domains.
+
+    Separates the role identity (e.g. Data Scientist) from its hard skills (e.g. Python, SQL).
+    """
+    software_engineering = "SOFTWARE_ENGINEERING"
+    data                 = "DATA"
+    ai_ml                = "AI_ML"
+    security             = "SECURITY"
+    product              = "PRODUCT"
+    research             = "RESEARCH"
+    consulting           = "CONSULTING"
+    qa_testing           = "QA_TESTING"
+    hardware_engineering = "HARDWARE_ENGINEERING"
+    other                = "OTHER"
+
+
+class ImportanceLevel(str, enum.Enum):
+    """
+    Standardized importance model used across all Drive Intelligence artifacts.
+
+    Governs: TechnologyIntelligence, TechnicalCompetencyIntelligence,
+    BehavioralCompetencyIntelligence, QualificationIntelligence,
+    RoleExpectation, HiringSignal, SuccessIndicator.
+
+    Future use: Phase 5 matching will apply weighted multipliers derived from
+    importance. CRITICAL gaps heavily penalize candidate rank; LOW gaps are
+    noise-suppressed.
+    """
+    low      = "LOW"
+    medium   = "MEDIUM"
+    high     = "HIGH"
+    critical = "CRITICAL"
+
+
+class DriveConfidenceLevel(str, enum.Enum):
+    """
+    Drive Intelligence confidence model.
+
+    Assignment rules:
+        HIGH   → Artifact traces to an explicit, unambiguous statement in the JD.
+        MEDIUM → Strongly implied by context; domain knowledge confirms it.
+        LOW    → Weakly inferred; uncertain without additional signals.
+
+    Future use: Phase 5 retrieval will suppress LOW confidence signals for
+    precision-mode matching and surface them only in exploratory search.
+    """
+    low    = "LOW"
+    medium = "MEDIUM"
+    high   = "HIGH"
+
+
+class EvidenceType(str, enum.Enum):
+    """
+    Classifies how an evidence snippet was extracted.
+
+    EXPLICIT_* → The JD directly stated the requirement/responsibility/etc.
+    INFERRED_SIGNAL → The engine deduced this from surrounding context.
+    """
+    explicit_requirement    = "EXPLICIT_REQUIREMENT"
+    explicit_responsibility = "EXPLICIT_RESPONSIBILITY"
+    explicit_qualification  = "EXPLICIT_QUALIFICATION"
+    explicit_selection      = "EXPLICIT_SELECTION_PROCESS"
+    inferred_signal         = "INFERRED_SIGNAL"
+
+
+class EvidenceSection(str, enum.Enum):
+    """
+    Which section of the job description the evidence snippet was found in.
+
+    Enables section-level explainability. The UI can say:
+    "Python was found under the REQUIREMENTS section."
+
+    Future: Section-weighted scoring (REQUIREMENTS evidence carries more
+    weight than BENEFITS evidence for matching).
+    """
+    requirements     = "REQUIREMENTS"
+    responsibilities = "RESPONSIBILITIES"
+    qualifications   = "QUALIFICATIONS"
+    selection_process = "SELECTION_PROCESS"
+    benefits         = "BENEFITS"
+    other            = "OTHER"
+
+
+class TechnicalCompetencyType(str, enum.Enum):
+    """
+    Taxonomy for technical/hard-skill competencies expected by the drive.
+
+    Separated from behavioral competencies to enable differentiated Phase 5
+    matching. A candidate failing a SYSTEM_DESIGN screen is penalized
+    differently than lacking COMMUNICATION signals.
+    """
+    backend_development  = "BACKEND_DEVELOPMENT"
+    frontend_development = "FRONTEND_DEVELOPMENT"
+    system_design        = "SYSTEM_DESIGN"
+    cloud_engineering    = "CLOUD_ENGINEERING"
+    data_engineering     = "DATA_ENGINEERING"
+    problem_solving      = "PROBLEM_SOLVING"
+    machine_learning     = "MACHINE_LEARNING"
+    devops               = "DEVOPS"
+    mobile_development   = "MOBILE_DEVELOPMENT"
+    security_engineering = "SECURITY_ENGINEERING"
+
+
+class BehavioralCompetencyType(str, enum.Enum):
+    """
+    Taxonomy for behavioral/soft-skill competencies expected by the drive.
+
+    Separated from technical competencies.  Phase 5 may apply separate
+    behavioral scoring models (e.g., for managerial roles).
+    """
+    communication = "COMMUNICATION"
+    leadership    = "LEADERSHIP"
+    teamwork      = "TEAMWORK"
+    ownership     = "OWNERSHIP"
+    adaptability  = "ADAPTABILITY"
+    critical_thinking = "CRITICAL_THINKING"
+    time_management   = "TIME_MANAGEMENT"
+
+
+class QualificationType(str, enum.Enum):
+    """
+    Taxonomy for eligibility qualification constraints.
+
+    Used by QualificationIntelligence to standardize how eligibility is
+    captured, enabling direct comparisons in Phase 5 candidate screening.
+    """
+    cgpa            = "CGPA"
+    degree          = "DEGREE"
+    branch          = "BRANCH"
+    graduation_year = "GRADUATION_YEAR"
+    backlog_rule    = "BACKLOG_RULE"
+    work_authorization = "WORK_AUTHORIZATION"
+
+
+class SelectionRoundType(str, enum.Enum):
+    """
+    Formal taxonomy for selection process rounds.
+
+    SelectionProcessIntelligence uses this to map out the hiring funnel,
+    enabling Phase 5 readiness modules to match candidates against specific
+    round types they may struggle with.
+    """
+    online_assessment   = "ONLINE_ASSESSMENT"
+    technical_interview = "TECHNICAL_INTERVIEW"
+    managerial_interview = "MANAGERIAL_INTERVIEW"
+    hr_interview        = "HR_INTERVIEW"
+    group_discussion    = "GROUP_DISCUSSION"
+    case_study          = "CASE_STUDY"
+
+
+class HiringSignalType(str, enum.Enum):
+    """
+    Taxonomy for implicit hiring preference signals inferred from the JD.
+
+    These are never explicitly stated — they are inferred from emphasis,
+    vocabulary, and context (e.g., a JD mentioning LeetCode scores is
+    DSA_FOCUSED even if it doesn't say "we value DSA").
+    """
+    dsa_focused         = "DSA_FOCUSED"
+    project_focused     = "PROJECT_FOCUSED"
+    research_focused    = "RESEARCH_FOCUSED"
+    cloud_focused       = "CLOUD_FOCUSED"
+    product_focused     = "PRODUCT_FOCUSED"
+    development_focused = "DEVELOPMENT_FOCUSED"
+    open_source_focused = "OPEN_SOURCE_FOCUSED"
+
+
+class RiskType(str, enum.Enum):
+    """
+    Taxonomy for drive-level risk signals.
+
+    Helps placement officers identify drives with structural challenges,
+    and enables Phase 5 to surface risk-aware recommendations.
+
+    Categories:
+        strict_eligibility          → Hard cutoffs that filter most students.
+        high_competition            → Drive historically attracts many applicants.
+        niche_technology_requirement → Requires uncommon or specialized tech.
+        multi_round_process         → Many selection stages → high dropout risk.
+        bond_or_contract            → Service bond or non-compete clause present.
+        unclear_role_expectations   → Vague responsibilities make prep difficult.
+        aggressive_selection_process → Fast eliminations, low transparency.
+        high_skill_density          → Requires mastery across many domains simultaneously.
+    """
+    strict_eligibility           = "STRICT_ELIGIBILITY"
+    high_competition             = "HIGH_COMPETITION"
+    niche_technology_requirement = "NICHE_TECHNOLOGY_REQUIREMENT"
+    multi_round_process          = "MULTI_ROUND_PROCESS"
+    bond_or_contract             = "BOND_OR_CONTRACT"
+    unclear_role_expectations    = "UNCLEAR_ROLE_EXPECTATIONS"
+    aggressive_selection_process = "AGGRESSIVE_SELECTION_PROCESS"
+    high_skill_density           = "HIGH_SKILL_DENSITY"
+
+
+class SuccessIndicatorType(str, enum.Enum):
+    """
+    Taxonomy for candidate traits that signal likely success in the drive.
+
+    These are inferred from what the drive rewards, not what it requires.
+    Phase 5 uses these to rank candidates who satisfy eligibility by
+    additional competitive differentiation.
+    """
+    strong_dsa              = "STRONG_DSA"
+    strong_projects         = "STRONG_PROJECTS"
+    internship_experience   = "INTERNSHIP_EXPERIENCE"
+    open_source_contributions = "OPEN_SOURCE_CONTRIBUTIONS"
+    leadership_experience   = "LEADERSHIP_EXPERIENCE"
+    hackathon_experience    = "HACKATHON_EXPERIENCE"
+    research_experience     = "RESEARCH_EXPERIENCE"
+
+
+class SuccessIndicatorStrength(str, enum.Enum):
+    """
+    Classifies how strongly a success indicator influences candidate ranking.
+
+    Distinct from ImportanceLevel (which measures eligibility criticality).
+    Strength measures *competitive edge*:
+        required  → Candidates without this will likely fail selection.
+        preferred → Candidates with this have a significant advantage.
+        bonus     → Candidates with this receive a minor ranking boost.
+
+    Phase 5: Matching system applies multipliers based on strength to
+    separate equally eligible candidates in the ranking layer.
+    """
+    required  = "REQUIRED"
+    preferred = "PREFERRED"
+    bonus     = "BONUS"
+

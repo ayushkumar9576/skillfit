@@ -97,6 +97,14 @@ class Drive(Base):
         order_by="DriveSource.version",
     )
 
+    # Phase 4.3 — Drive Intelligence analysis execution records
+    drive_analyses: Mapped[List["DriveAnalysis"]] = relationship(
+        "DriveAnalysis",
+        back_populates="drive",
+        cascade="all, delete-orphan",
+        order_by="DriveAnalysis.created_at",
+    )
+
     def __repr__(self) -> str:
         return (
             f"<Drive id={self.id} company={self.company_name!r} "

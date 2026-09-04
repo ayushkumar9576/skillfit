@@ -10,3 +10,5 @@ from app.models.import_audit_log import ImportAuditLog
 from app.models.drive_snapshot import DriveSnapshotModel
 # Phase 4.2 — Drive Ingestion versioned source layer
 from app.models.drive_source import DriveSource
+# Phase 4.3 — Drive Intelligence analysis execution records
+from app.models.drive_analysis import DriveAnalysis

@@ -11,3 +11,5 @@ from app.models.candidate_intelligence_snapshot import CandidateIntelligenceSnap
 from app.models.drive_snapshot import DriveSnapshotModel
 # Phase 4.2 — Drive Ingestion versioned source layer
 from app.models.drive_source import DriveSource
+# Phase 4.3 — Drive Intelligence analysis execution records
+from app.models.drive_analysis import DriveAnalysis

@@ -36,8 +36,10 @@ Auth:
 import logging
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
+
+from app.analysis.engines.executor import AnalysisExecutor
 
 from app.api.deps import get_db, require_roles
 from app.core.enums import DriveStatus, UserRole
@@ -59,6 +61,15 @@ from app.schemas.drive_source_schemas import (
 )
 from app.services import drive_service
 from app.services import drive_ingestion_service
+from app.services import drive_analysis_service
+from app.schemas.drive_analysis_schemas import (
+    AnalyzeDriveRequest,
+    AnalysisListResponse,
+    AnalysisResponse,
+    SnapshotDetailResponse,
+    SnapshotListResponse,
+    SnapshotSummaryResponse,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -519,3 +530,157 @@ def get_drive_source(
         )
 
     return DriveSourceResponse.from_orm_with_id(source)
+
+
+# ===========================================================================
+# Phase 4.3 — Drive Intelligence Analysis & Snapshots
+# ===========================================================================
+
+
+@router.post(
+    "/{drive_id}/analyze",
+    response_model=AnalysisResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Trigger Drive Intelligence Analysis",
+)
+async def analyze_drive(
+    drive_id: int,
+    background_tasks: BackgroundTasks,
+    body: AnalyzeDriveRequest = AnalyzeDriveRequest(),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+):
+    """
+    Trigger the Drive Intelligence Engine for the drive's latest ingested source.
+
+    Flow:
+        DriveSource (latest version)
+              ↓
+        ParsedDriveContent reconstruction
+              ↓
+        DriveIntelligenceEngine (LLM + Governance Layer)
+              ↓
+        DriveSnapshot (immutable intelligence record)
+
+    This is an asynchronous operation. A DriveAnalysis record is created immediately
+    with status PENDING. The execution is handed off to the AnalysisExecutor (via
+    FastAPI BackgroundTasks), which transitions it to RUNNING and eventually
+    COMPLETED or FAILED.
+
+    Auth: admin only.
+    """
+    # 1. Create the analysis record synchronously (handles idempotency inside service)
+    analysis = drive_analysis_service.create_analysis_record(
+        db,
+        drive_id,
+        prompt_version=body.prompt_version,
+    )
+    db.commit()
+    db.refresh(analysis)
+
+    # 2. Handoff to executor abstraction
+    executor = AnalysisExecutor(background_tasks)
+    executor.submit_analysis(analysis.id)
+
+    # 3. Return 202 ACCEPTED immediately
+    return AnalysisResponse.model_validate(analysis)
+
+
+@router.get(
+    "/{drive_id}/analysis",
+    response_model=AnalysisListResponse,
+    summary="Get Drive Intelligence Analysis History",
+)
+def get_analysis_history(
+    drive_id: int,
+    limit: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
+):
+    """
+    List all Drive Intelligence analysis execution records for a drive.
+
+    Ordered newest first. Each record shows status, model, prompt version,
+    token usage, quality score, and any failure reason.
+
+    Auth: admin, faculty.
+    """
+    # Validate drive exists
+    drive = db.get(__import__("app.models.drive", fromlist=["Drive"]).Drive, drive_id)
+    if not drive:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Drive {drive_id} not found.",
+        )
+
+    analyses = drive_analysis_service.get_analysis_history(db, drive_id, limit=limit)
+    return AnalysisListResponse(
+        drive_id=drive_id,
+        total=len(analyses),
+        analyses=[AnalysisResponse.model_validate(a) for a in analyses],
+    )
+
+
+@router.get(
+    "/{drive_id}/snapshots",
+    response_model=SnapshotListResponse,
+    summary="List Drive Intelligence Snapshots",
+)
+def list_snapshots(
+    drive_id: int,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
+):
+    """
+    List all Drive Intelligence snapshots for a drive, newest first.
+
+    Snapshots are immutable — each represents the intelligence state at
+    the time of a specific analysis run. Use GET /snapshots/{id} for
+    the full intelligence_payload.
+
+    Auth: admin, faculty.
+    """
+    from sqlalchemy import desc
+    from app.models.drive_snapshot import DriveSnapshotModel
+
+    snapshots = (
+        db.query(DriveSnapshotModel)
+        .filter(DriveSnapshotModel.drive_id == drive_id)
+        .order_by(desc(DriveSnapshotModel.created_at))
+        .all()
+    )
+    return SnapshotListResponse(
+        drive_id=drive_id,
+        total=len(snapshots),
+        snapshots=[SnapshotSummaryResponse.model_validate(s) for s in snapshots],
+    )
+
+
+@router.get(
+    "/{drive_id}/snapshots/{snapshot_id}",
+    response_model=SnapshotDetailResponse,
+    summary="Get Drive Intelligence Snapshot Detail",
+)
+def get_snapshot(
+    drive_id: int,
+    snapshot_id: str,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
+):
+    """
+    Retrieve a specific Drive Intelligence snapshot by ID.
+
+    Returns the full intelligence_payload containing:
+        - technologies, technical_competencies, behavioral_competencies
+        - qualifications, hiring_signals, role_expectations
+        - selection_process, risks, success_indicators
+
+    Auth: admin, faculty.
+    """
+    snapshot = drive_analysis_service.get_snapshot_by_id(db, drive_id, snapshot_id)
+    if not snapshot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Snapshot {snapshot_id} not found for drive {drive_id}.",
+        )
+    return SnapshotDetailResponse.model_validate(snapshot)
