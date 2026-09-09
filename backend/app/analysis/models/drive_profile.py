@@ -36,6 +36,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+import uuid
 
 
 # ---------------------------------------------------------------------------
@@ -59,7 +60,7 @@ class DriveProfileMetadata:
                            foundation snapshots.
         generated_at:      UTC timestamp of snapshot generation.
     """
-    drive_id: int
+    drive_id: uuid.UUID
     snapshot_version: str = "1.0"
     analysis_version: str = "4.1.0"
     generated_at: datetime = field(default_factory=lambda: datetime.now(timezone.utc))
@@ -174,7 +175,7 @@ class DriveIntelligenceSnapshot:
         profile:           The actual DriveIntelligenceProfile domain object.
     """
     snapshot_id: str
-    drive_id: int
+    drive_id: uuid.UUID
     snapshot_version: str
     analysis_version: str
     profile: DriveIntelligenceProfile

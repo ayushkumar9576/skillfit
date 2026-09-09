@@ -259,6 +259,29 @@ def validate_response(raw_text: Optional[str], schema: Type[TSchema]) -> TSchema
         )
 
     try:
+        def _normalize_llm_json(obj) -> None:
+            """Recursively normalize known hallucinated values in the JSON payload."""
+            if isinstance(obj, dict):
+                # 1. Normalize 'importance' mapping
+                if "importance" in obj and isinstance(obj["importance"], str):
+                    mapping = {
+                        "PREFERRED": "MEDIUM",
+                        "OPTIONAL": "LOW",
+                        "REQUIRED": "HIGH",
+                        "MANDATORY": "CRITICAL"
+                    }
+                    val = obj["importance"].upper()
+                    if val in mapping:
+                        obj["importance"] = mapping[val]
+                
+                # Recursively normalize nested objects/lists
+                for value in obj.values():
+                    _normalize_llm_json(value)
+            elif isinstance(obj, list):
+                for item in obj:
+                    _normalize_llm_json(item)
+
+        _normalize_llm_json(data)
         return schema.model_validate(data)
     except ValidationError as exc:
         raise LLMResponseError(

@@ -8,7 +8,9 @@ preventing hallucinated intelligence artifacts.
 """
 import logging
 import re
-from typing import List
+from typing import Any, List
+
+from pydantic import BaseModel
 
 from app.analysis.drives.governance import GovernanceValidationError
 from app.analysis.drives.schemas.intelligence import DriveIntelligenceProfile, Evidence
@@ -24,9 +26,31 @@ def _normalize_text(text: str) -> str:
     return text.strip()
 
 
+def _collect_all_evidence(obj: Any) -> List[Evidence]:
+    """
+    Recursively extract all Evidence instances from any Pydantic model, list, or dict.
+    Guarantees no intelligence artifact is missed by validation.
+    """
+    evidence_list: List[Evidence] = []
+    if isinstance(obj, Evidence):
+        evidence_list.append(obj)
+    elif isinstance(obj, BaseModel):
+        for field_name in obj.__class__.model_fields.keys():
+            val = getattr(obj, field_name, None)
+            if val is not None:
+                evidence_list.extend(_collect_all_evidence(val))
+    elif isinstance(obj, (list, tuple, set)):
+        for item in obj:
+            evidence_list.extend(_collect_all_evidence(item))
+    elif isinstance(obj, dict):
+        for val in obj.values():
+            evidence_list.extend(_collect_all_evidence(val))
+    return evidence_list
+
+
 def verify_evidence(profile: DriveIntelligenceProfile, raw_text: str) -> None:
     """
-    Verify that all evidence in the profile exists in the raw text.
+    Verify that all evidence across all artifacts exists in the raw text.
 
     Args:
         profile: The extracted DriveIntelligenceProfile.
@@ -37,30 +61,8 @@ def verify_evidence(profile: DriveIntelligenceProfile, raw_text: str) -> None:
     """
     normalized_raw_text = _normalize_text(raw_text)
 
-    # Collect all evidence from all artifacts
-    all_evidence: List[Evidence] = []
-    
-    if profile.domain:
-        all_evidence.extend(profile.domain.evidence)
-    
-    for tech in profile.technologies:
-        all_evidence.extend(tech.evidence)
-    for comp in profile.technical_competencies:
-        all_evidence.extend(comp.evidence)
-    for comp in profile.behavioral_competencies:
-        all_evidence.extend(comp.evidence)
-    for qual in profile.qualifications:
-        all_evidence.extend(qual.evidence)
-    for signal in profile.hiring_signals:
-        all_evidence.extend(signal.evidence)
-    for exp in profile.role_expectations:
-        all_evidence.extend(exp.evidence)
-    for round_ in profile.selection_process:
-        all_evidence.extend(round_.evidence)
-    for ind in profile.success_indicators:
-        all_evidence.extend(ind.evidence)
-    for risk in profile.risks:
-        all_evidence.extend(risk.evidence)
+    # Exhaustive recursive collection across all 15+ artifact categories
+    all_evidence: List[Evidence] = _collect_all_evidence(profile)
 
     for ev in all_evidence:
         source_text = ev.source_text.strip()

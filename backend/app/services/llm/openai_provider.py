@@ -181,10 +181,18 @@ class OpenAIProvider(BaseLLMProvider):
     ) -> LLMCompletion:
         use_model = model or self._settings.model
 
+        import json
+        schema_json = response_schema.model_json_schema()
+        enriched_system_prompt = (
+            f"{system_prompt}\n\n"
+            f"IMPORTANT: You MUST return a JSON object that strictly conforms to the following JSON Schema:\n"
+            f"{json.dumps(schema_json, indent=2)}"
+        )
+
         request_kwargs = {
             "model": use_model,
             "messages": [
-                {"role": "system", "content": system_prompt},
+                {"role": "system", "content": enriched_system_prompt},
                 {"role": "user", "content": user_content},
             ],
             "response_format": {"type": "json_object"},
