@@ -58,7 +58,7 @@ from app.services.llm.service import LLMService, get_llm_service
 logger = logging.getLogger(__name__)
 
 # Current engine version — bump on any logic change to this file
-ANALYSIS_VERSION: str = "4.3.0"
+ANALYSIS_VERSION: str = "4.4.0"
 
 _DEFAULT_MAX_TOKENS = 8192
 _DEFAULT_TEMPERATURE = 0.0

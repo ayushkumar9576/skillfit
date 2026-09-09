@@ -95,17 +95,20 @@ class DriveStatus(str, enum.Enum):
     """
     Lifecycle status of a Placement Drive entity.
 
-    Phase 4.1 — foundation lifecycle only. Intelligence generation
-    transitions (analyzing, intelligence_ready) will be added in Phase 4.3.
-
-    Transitions:
-        draft  → Drive created; not yet published to candidates.
-        active → Drive is live and accepting candidate interest.
-        closed → Drive has concluded; no further activity expected.
+    Transitions (Enforced in Phase 4.4):
+        draft           → Drive created (with JD).
+        analyzing       → JD is being processed by Intelligence Engine.
+        analysis_failed → Intelligence pipeline encountered an error.
+        ready           → Intelligence generated successfully. Awaiting Admin review.
+        published       → Admin has explicitly published the drive. Visible to students.
+        archived        → Drive has concluded; no further activity expected.
     """
-    draft  = "draft"
-    active = "active"
-    closed = "closed"
+    draft = "draft"
+    analyzing = "analyzing"
+    analysis_failed = "analysis_failed"
+    ready = "ready"
+    published = "published"
+    archived = "archived"
 
 
 class DriveSourceType(str, enum.Enum):
@@ -439,3 +442,110 @@ class SuccessIndicatorStrength(str, enum.Enum):
     preferred = "PREFERRED"
     bonus     = "BONUS"
 
+
+# ===========================================================================
+# Phase 4.3B — Remediation Sprint Constraint Enums
+# ===========================================================================
+
+
+class QualificationOperator(str, enum.Enum):
+    """
+    Operators for deterministic eligibility execution.
+    """
+    gte    = "GTE"
+    lte    = "LTE"
+    eq     = "EQ"
+    in_op  = "IN"
+    not_in = "NOT_IN"
+
+
+class WorkMode(str, enum.Enum):
+    """
+    Taxonomy for work arrangements.
+    """
+    remote  = "REMOTE"
+    hybrid  = "HYBRID"
+    on_site = "ON_SITE"
+
+
+class ShiftType(str, enum.Enum):
+    """
+    Taxonomy for shift requirements.
+    """
+    general    = "GENERAL"
+    rotational = "ROTATIONAL"
+    night      = "NIGHT_SHIFT"
+
+
+class ExperienceLevel(str, enum.Enum):
+    """
+    Taxonomy for expected experience levels.
+    """
+    fresher    = "FRESHER"
+    internship = "INTERNSHIP"
+    lateral    = "LATERAL"
+
+
+# ===========================================================================
+# Phase 4.5 — Intelligence Enhancement Enums
+# ===========================================================================
+
+
+class IntelligenceOrigin(str, enum.Enum):
+    """
+    Classifies the provenance of an extracted intelligence artifact.
+
+    Distinguishes whether a skill or expectation was explicitly stated in the JD
+    or inferred by the LLM from role title, domain, or stated responsibilities.
+    """
+    explicit                = "EXPLICIT"
+    inferred_role           = "INFERRED_ROLE"
+    inferred_domain         = "INFERRED_DOMAIN"
+    inferred_responsibility = "INFERRED_RESPONSIBILITY"
+
+
+class IndustryVertical(str, enum.Enum):
+    """
+    Taxonomy for industry verticals in Placement Drive Intelligence.
+
+    Captures the primary sector or product category of the hiring organization.
+    """
+    fintech         = "FINTECH"
+    edtech          = "EDTECH"
+    healthcare      = "HEALTHCARE"
+    e_commerce      = "E_COMMERCE"
+    enterprise_saas = "ENTERPRISE_SAAS"
+    automotive      = "AUTOMOTIVE"
+    consulting      = "CONSULTING"
+    gaming          = "GAMING"
+    cybersecurity   = "CYBERSECURITY"
+    other           = "OTHER"
+
+
+# ===========================================================================
+# Phase 4.4 — Drive Evaluation Engine Enums
+# ===========================================================================
+
+
+class DriveDifficultyLevel(str, enum.Enum):
+    """
+    Overall competitive difficulty of a Placement Drive.
+
+    Determined by the Drive Evaluation Engine based on a holistic reading of
+    the drive's technologies, competencies, selection process, risks, and
+    success indicators. Never based on a numeric score.
+
+    Levels:
+        BEGINNER          → Entry-level drive; minimal filtering; broad eligibility.
+        MODERATE          → Standard hiring process; moderate requirements.
+        COMPETITIVE       → Above-average requirements; selective process.
+        HIGHLY_COMPETITIVE → Strong signals of high selectivity (e.g. DSA focus,
+                             multiple elimination rounds, advanced technology stack).
+        ELITE             → Tier-1 company signals combined with extreme selectivity
+                            (e.g. Google/Microsoft-scale: Advanced DSA + 5+ rounds).
+    """
+    beginner           = "BEGINNER"
+    moderate           = "MODERATE"
+    competitive        = "COMPETITIVE"
+    highly_competitive = "HIGHLY_COMPETITIVE"
+    elite              = "ELITE"

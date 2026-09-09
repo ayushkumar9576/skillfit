@@ -1,7 +1,7 @@
 """
 app/analysis/drives/governance.py
 -----------------------------------
-Intelligence Governance Layer — Phase 4.3 Drive Intelligence Engine.
+Intelligence Governance Layer — Phase 4.3 & 4.5 Drive Intelligence Engine.
 
 Position in the pipeline:
 
@@ -9,48 +9,32 @@ Position in the pipeline:
             ↓
     Pydantic Validation (structural)
             ↓
-    [THIS MODULE] Intelligence Governance Layer (semantic + quality)
+    [THIS MODULE] Intelligence Governance Layer (semantic + quality + sanitization)
             ↓
     DriveSnapshot (persisted intelligence)
 
 Responsibilities:
     1. Auto-correct recoverable issues without failing the analysis.
-    2. Detect fatal issues and raise GovernanceValidationError to
+    2. Normalize & sanitize subdomains, role_family, and technology names.
+    3. Detect fatal issues and raise GovernanceValidationError to
        prevent poisoned data from reaching the snapshot store.
-    3. Compute intelligence quality metrics.
-    4. Return a corrected DriveIntelligenceProfile + GovernanceReport.
-
-Issue Classification:
-
-    RECOVERABLE (auto-correct, analysis continues):
-        - Duplicate technologies (same name case-insensitively)
-        - Duplicate competencies
-        - Duplicate qualifications (same type)
-        - Whitespace/formatting artifacts in free-text fields
-
-    FATAL (raise GovernanceValidationError, no snapshot created):
-        - Any artifact with an empty evidence list (should be caught by
-          Pydantic, but double-checked here)
-        - Completely empty profile (zero technologies + competencies +
-          qualifications + role_expectations)
-        - Invalid confidence/importance values escaping Pydantic
-        - Payload deserialization failure
-
-Design:
-    The Governance Layer is stateless and pure (no I/O, no DB access).
-    It receives a DriveIntelligenceProfile, returns a corrected profile
-    and a GovernanceReport. The caller (drive_analysis_service) decides
-    what to do with the report.
+    4. Compute intelligence quality metrics across all 15+ artifact categories.
+    5. Return a corrected DriveIntelligenceProfile + GovernanceReport.
 """
 
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import List
+from typing import List, Optional
 
 from app.analysis.drives.schemas.intelligence import (
+    DriveDifficultyIntelligence,
     DriveIntelligenceProfile,
+    PlacementRelevanceIntelligence,
+    PreparationIntelligence,
+    PreparationTopic,
+    ProfessionalDomainIntelligence,
     TechnologyIntelligence,
     TechnicalCompetencyIntelligence,
     BehavioralCompetencyIntelligence,
@@ -128,16 +112,13 @@ class GovernanceReport:
 class DriveGovernanceLayer:
     """
     Stateless governance validator and auto-corrector for DriveIntelligenceProfile.
-
-    Usage:
-        corrected_profile, report = DriveGovernanceLayer().validate_and_correct(profile)
     """
 
     def validate_and_correct(
         self, profile: DriveIntelligenceProfile
     ) -> tuple[DriveIntelligenceProfile, GovernanceReport]:
         """
-        Validate and auto-correct a raw DriveIntelligenceProfile.
+        Validate, sanitize, and auto-correct a raw DriveIntelligenceProfile.
 
         Args:
             profile: The Pydantic-validated profile from the LLM engine.
@@ -154,6 +135,7 @@ class DriveGovernanceLayer:
         self._check_minimum_intelligence(profile)
 
         # --- Auto-corrections (recoverable) ---
+        domain = self._sanitize_domain(profile.domain, report)
         technologies = self._deduplicate_technologies(profile.technologies, report)
         technical_competencies = self._deduplicate_by_key(
             profile.technical_competencies, "competency", "technical competencies", report
@@ -167,10 +149,12 @@ class DriveGovernanceLayer:
         hiring_signals = self._deduplicate_by_key(
             profile.hiring_signals, "signal", "hiring signals", report
         )
+        preparation = self._sanitize_preparation(profile.preparation, report)
 
-        # Build corrected profile
+        # Build corrected profile preserving all 15+ artifact categories
         corrected = DriveIntelligenceProfile(
             intelligence_schema_version=profile.intelligence_schema_version,
+            domain=domain,
             technologies=technologies,
             technical_competencies=technical_competencies,
             behavioral_competencies=behavioral_competencies,
@@ -180,6 +164,15 @@ class DriveGovernanceLayer:
             selection_process=profile.selection_process,
             risks=profile.risks,
             success_indicators=profile.success_indicators,
+            service_agreements=profile.service_agreements,
+            work_arrangements=profile.work_arrangements,
+            shifts=profile.shifts,
+            experience_requirements=profile.experience_requirements,
+            compensation=profile.compensation,
+            preparation=preparation,
+            # Phase 4.4 — Evaluation Engine artifacts (passed through as-is; no auto-correction)
+            difficulty=profile.difficulty,
+            placement_relevance=profile.placement_relevance,
         )
 
         # --- Post-correction quality metrics ---
@@ -187,8 +180,7 @@ class DriveGovernanceLayer:
         report.validation_warnings = len(report.corrections)
 
         logger.info(
-            "Governance complete. quality_score=%.2f evidence_coverage=%.2f "
-            "corrections=%d",
+            "Governance complete. quality_score=%.2f evidence_coverage=%.2f corrections=%d",
             report.quality_score,
             report.evidence_coverage,
             report.validation_warnings,
@@ -216,8 +208,43 @@ class DriveGovernanceLayer:
             )
 
     # -----------------------------------------------------------------------
-    # Recoverable auto-corrections
+    # Recoverable auto-corrections & sanitization
     # -----------------------------------------------------------------------
+
+    def _sanitize_domain(
+        self,
+        domain: Optional[ProfessionalDomainIntelligence],
+        report: GovernanceReport,
+    ) -> Optional[ProfessionalDomainIntelligence]:
+        """
+        Sanitize and normalize subdomains and role family.
+        """
+        if not domain:
+            return None
+
+        sanitized_subdomains: List[str] = []
+        seen = set()
+        for sub in domain.subdomains:
+            cleaned = sub.strip().title()
+            if cleaned and cleaned.lower() not in seen:
+                seen.add(cleaned.lower())
+                sanitized_subdomains.append(cleaned)
+
+        # Limit to max 5 subdomains
+        if len(sanitized_subdomains) > 5:
+            sanitized_subdomains = sanitized_subdomains[:5]
+            report.corrections.append("Trimmed subdomains to top 5.")
+
+        role_fam = domain.role_family.strip().title() if domain.role_family else None
+
+        return ProfessionalDomainIntelligence(
+            domain=domain.domain,
+            subdomains=sanitized_subdomains,
+            role_family=role_fam,
+            industry=domain.industry,
+            confidence=domain.confidence,
+            evidence=domain.evidence,
+        )
 
     def _deduplicate_technologies(
         self,
@@ -238,27 +265,31 @@ class DriveGovernanceLayer:
             key = tech.name.lower().strip()
             if key in seen:
                 existing = seen[key]
+                tech_imp = tech.importance if isinstance(tech.importance, str) else tech.importance.value
+                exist_imp = existing.importance if isinstance(existing.importance, str) else existing.importance.value
                 # Keep highest importance
-                if importance_order.get(tech.importance, 0) > importance_order.get(
-                    existing.importance, 0
+                if importance_order.get(tech_imp.upper(), 0) > importance_order.get(
+                    exist_imp.upper(), 0
                 ):
-                    # Merge evidence into higher-importance entry
                     merged_evidence = list(existing.evidence) + list(tech.evidence)
                     seen[key] = TechnologyIntelligence(
                         name=existing.name,
                         category=tech.category,
                         importance=tech.importance,
                         confidence=tech.confidence,
+                        is_mandatory=tech.is_mandatory if tech.is_mandatory is not None else existing.is_mandatory,
+                        origin=tech.origin,
                         evidence=merged_evidence,
                     )
                 else:
-                    # Accumulate evidence onto existing
                     merged_evidence = list(existing.evidence) + list(tech.evidence)
                     seen[key] = TechnologyIntelligence(
                         name=existing.name,
                         category=existing.category,
                         importance=existing.importance,
                         confidence=existing.confidence,
+                        is_mandatory=existing.is_mandatory if existing.is_mandatory is not None else tech.is_mandatory,
+                        origin=existing.origin,
                         evidence=merged_evidence,
                     )
                 msg = f"Merged duplicate technology: '{tech.name}'"
@@ -278,8 +309,6 @@ class DriveGovernanceLayer:
     ) -> list:
         """
         Generic deduplication by a single string attribute.
-
-        Keeps the first occurrence; logs subsequent duplicates as corrections.
         """
         seen: set[str] = set()
         result = []
@@ -294,6 +323,35 @@ class DriveGovernanceLayer:
                 result.append(item)
         return result
 
+    def _sanitize_preparation(
+        self,
+        preparation: Optional[PreparationIntelligence],
+        report: GovernanceReport,
+    ) -> Optional[PreparationIntelligence]:
+        """
+        Deduplicate priority preparation topics by (topic_name, target_round_type).
+        """
+        if not preparation:
+            return None
+
+        seen_topics: set[tuple[str, str]] = set()
+        deduped_topics: List[PreparationTopic] = []
+
+        for topic in preparation.priority_topics:
+            round_str = str(topic.target_round_type.value if hasattr(topic.target_round_type, 'value') else topic.target_round_type)
+            key = (topic.topic_name.lower().strip(), round_str)
+            if key not in seen_topics:
+                seen_topics.add(key)
+                deduped_topics.append(topic)
+            else:
+                msg = f"Removed duplicate preparation topic: '{topic.topic_name}' for round '{round_str}'"
+                report.corrections.append(msg)
+
+        return PreparationIntelligence(
+            priority_topics=deduped_topics,
+            key_evaluation_focus=preparation.key_evaluation_focus,
+        )
+
     # -----------------------------------------------------------------------
     # Quality metrics
     # -----------------------------------------------------------------------
@@ -303,9 +361,6 @@ class DriveGovernanceLayer:
     ) -> None:
         """
         Compute evidence_coverage, confidence_distribution, and quality_score.
-
-        evidence_coverage = % of artifacts that have at least one EXPLICIT_* evidence.
-        quality_score     = weighted combination of coverage and confidence distribution.
         """
         all_artifacts = (
             profile.technologies
@@ -317,7 +372,21 @@ class DriveGovernanceLayer:
             + profile.selection_process
             + profile.risks
             + profile.success_indicators
+            + profile.service_agreements
+            + profile.work_arrangements
+            + profile.shifts
+            + profile.experience_requirements
+            + profile.compensation
         )
+        if profile.domain:
+            all_artifacts.append(profile.domain)
+        if profile.preparation:
+            all_artifacts.extend(profile.preparation.priority_topics)
+        # Phase 4.4 — Include evaluation intelligence artifacts in quality metrics
+        if profile.difficulty:
+            all_artifacts.append(profile.difficulty)
+        if profile.placement_relevance:
+            all_artifacts.append(profile.placement_relevance)
 
         if not all_artifacts:
             report.quality_score = 0.0
@@ -339,9 +408,9 @@ class DriveGovernanceLayer:
             for ev in getattr(artifact, "evidence", []):
                 ev_type = ev.evidence_type if isinstance(ev.evidence_type, str) else ev.evidence_type.value
                 ev_conf = ev.confidence if isinstance(ev.confidence, str) else ev.confidence.value
-                if ev_type.upper() in explicit_types:
+                if str(ev_type).upper() in explicit_types:
                     has_explicit = True
-                conf_key = ev_conf.upper()
+                conf_key = str(ev_conf).upper()
                 if conf_key in dist:
                     dist[conf_key] += 1
             if has_explicit:

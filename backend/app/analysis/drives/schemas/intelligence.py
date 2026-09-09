@@ -33,25 +33,32 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 from app.core.enums import (
     BehavioralCompetencyType,
     DriveConfidenceLevel,
+    DriveDifficultyLevel,
     EvidenceSection,
     EvidenceType,
+    ExperienceLevel,
     HiringSignalType,
     ImportanceLevel,
+    IndustryVertical,
+    IntelligenceOrigin,
     ProfessionalDomainType,
+    QualificationOperator,
     QualificationType,
     RiskType,
     SelectionRoundType,
+    ShiftType,
     SuccessIndicatorStrength,
     SuccessIndicatorType,
     TechnicalCompetencyType,
     TechnologyCategory,
+    WorkMode,
 )
 
 # ---------------------------------------------------------------------------
 # Schema version — bump this on any breaking or additive schema change
 # ---------------------------------------------------------------------------
 
-INTELLIGENCE_SCHEMA_VERSION: str = "v1.0"
+INTELLIGENCE_SCHEMA_VERSION: str = "v1.3"
 
 
 # ===========================================================================
@@ -112,6 +119,7 @@ class TechnologyIntelligence(BaseModel):
         - ``category`` is taxonomy-bounded to TechnologyCategory.
         - ``importance`` drives Phase 5 matching weight.
         - ``is_mandatory`` strictly separates required skills from preferred skills.
+        - ``origin`` classifies explicit quote vs inferred requirement.
         - ``evidence`` must be non-empty (Governance Layer enforces this).
     """
 
@@ -127,6 +135,10 @@ class TechnologyIntelligence(BaseModel):
         default=None, 
         description="True if required, False if preferred. None for historical snapshots."
     )
+    origin: IntelligenceOrigin = Field(
+        default=IntelligenceOrigin.explicit,
+        description="Provenance of this technology requirement (explicit vs inferred).",
+    )
     evidence: List[Evidence] = Field(
         ..., min_length=1, description="Evidence supporting this technology requirement."
     )
@@ -141,11 +153,23 @@ class TechnologyIntelligence(BaseModel):
 
 class ProfessionalDomainIntelligence(BaseModel):
     """
-    Overarching business domain or role family inferred from the JD.
+    Overarching business domain, subdomains, role family, and industry inferred from the JD.
     """
 
     domain: ProfessionalDomainType = Field(
         ..., description="Domain classification (e.g. SOFTWARE_ENGINEERING, DATA)."
+    )
+    subdomains: List[str] = Field(
+        default_factory=list,
+        description="Specific technical focus areas (e.g., ['Distributed Systems', 'Cloud Infrastructure']).",
+    )
+    role_family: Optional[str] = Field(
+        default=None,
+        description="Normalized role family (e.g., 'Backend Engineering', 'Data Platform').",
+    )
+    industry: Optional[IndustryVertical] = Field(
+        default=None,
+        description="Industry sector or vertical (e.g., FINTECH, HEALTHCARE).",
     )
     confidence: DriveConfidenceLevel = Field(
         ..., description="Engine confidence in this domain inference."
@@ -180,6 +204,10 @@ class TechnicalCompetencyIntelligence(BaseModel):
     confidence: DriveConfidenceLevel = Field(
         ..., description="Confidence in this competency inference."
     )
+    origin: IntelligenceOrigin = Field(
+        default=IntelligenceOrigin.explicit,
+        description="Provenance of this technical competency.",
+    )
     evidence: List[Evidence] = Field(
         ..., min_length=1, description="Evidence for this competency requirement."
     )
@@ -203,6 +231,10 @@ class BehavioralCompetencyIntelligence(BaseModel):
     )
     confidence: DriveConfidenceLevel = Field(
         ..., description="Confidence in this behavioral competency inference."
+    )
+    origin: IntelligenceOrigin = Field(
+        default=IntelligenceOrigin.explicit,
+        description="Provenance of this behavioral expectation.",
     )
     evidence: List[Evidence] = Field(
         ..., min_length=1, description="Evidence for this behavioral expectation."
@@ -233,8 +265,14 @@ class QualificationIntelligence(BaseModel):
     qualification_type: QualificationType = Field(
         ..., description="Type of eligibility constraint."
     )
-    expected_value: str = Field(
-        ..., min_length=1, description="The required/expected value for this qualification."
+    operator: QualificationOperator = Field(
+        ..., description="Operator for deterministic eligibility execution."
+    )
+    numeric_value: Optional[float] = Field(
+        default=None, description="Numeric value for the constraint (e.g., 7.5 for CGPA)."
+    )
+    allowed_values: Optional[List[str]] = Field(
+        default=None, description="Allowed string values (e.g., ['CSE', 'IT'])."
     )
     is_mandatory: bool = Field(
         ...,
@@ -305,6 +343,10 @@ class RoleExpectation(BaseModel):
     )
     importance: ImportanceLevel = Field(
         ..., description="How central this expectation is to the role."
+    )
+    origin: IntelligenceOrigin = Field(
+        default=IntelligenceOrigin.explicit,
+        description="Provenance of this role expectation.",
     )
     evidence: List[Evidence] = Field(
         ..., min_length=1, description="Evidence from the JD for this expectation."
@@ -413,7 +455,212 @@ class SuccessIndicator(BaseModel):
 
 
 # ===========================================================================
-# 10. DriveIntelligenceProfile — Aggregate Root
+# 10. Constraint Intelligence (Phase 4.3B)
+# ===========================================================================
+
+
+class ServiceAgreementIntelligence(BaseModel):
+    has_bond: bool = Field(..., description="True if a service bond or contract is required.")
+    duration_months: Optional[int] = Field(default=None, description="Duration of the bond in months.")
+    penalty_amount: Optional[float] = Field(default=None, description="Financial penalty for breaking the bond.")
+    evidence: List[Evidence] = Field(..., min_length=1, description="Evidence supporting the bond requirement.")
+
+    model_config = {"use_enum_values": True}
+
+
+class WorkArrangementIntelligence(BaseModel):
+    mode: WorkMode = Field(..., description="The primary work arrangement mode.")
+    locations: List[str] = Field(default_factory=list, description="Office locations. Must be empty if mode is REMOTE.")
+    evidence: List[Evidence] = Field(..., min_length=1, description="Evidence supporting the work arrangement.")
+
+    model_config = {"use_enum_values": True}
+
+    @model_validator(mode="after")
+    def _validate_locations(self) -> "WorkArrangementIntelligence":
+        if self.mode == WorkMode.remote and self.locations:
+            raise ValueError("Locations must be empty if work mode is REMOTE.")
+        return self
+
+
+class ShiftIntelligence(BaseModel):
+    shift_type: ShiftType = Field(..., description="Required shift type.")
+    evidence: List[Evidence] = Field(..., min_length=1, description="Evidence supporting shift requirement.")
+
+    model_config = {"use_enum_values": True}
+
+
+class ExperienceIntelligence(BaseModel):
+    level: ExperienceLevel = Field(..., description="Expected candidate experience level.")
+    min_months: Optional[int] = Field(default=None, description="Minimum months of experience if applicable.")
+    evidence: List[Evidence] = Field(..., min_length=1, description="Evidence supporting experience level.")
+
+    model_config = {"use_enum_values": True}
+
+
+class CompensationIntelligence(BaseModel):
+    fixed_compensation: Optional[float] = Field(default=None, description="Fixed component (e.g., Base Salary) in LPA.")
+    variable_compensation: Optional[float] = Field(default=None, description="Variable component (e.g., Performance Bonus) in LPA.")
+    joining_bonus: Optional[float] = Field(default=None, description="One-time joining bonus in LPA.")
+    esop_value: Optional[float] = Field(default=None, description="Stock options value in LPA.")
+    total_ctc: Optional[float] = Field(default=None, description="Total Cost to Company in LPA.")
+    currency: str = Field(default="INR", description="Currency code.")
+    evidence: List[Evidence] = Field(..., min_length=1, description="Evidence supporting compensation structure.")
+
+    model_config = {"use_enum_values": True}
+
+
+# ===========================================================================
+# 11. Preparation Intelligence (Phase 4.5)
+# ===========================================================================
+
+
+class PreparationTopic(BaseModel):
+    """
+    A high-yield candidate preparation topic mapped to a selection round.
+    """
+
+    topic_name: str = Field(
+        ..., min_length=2, description="Specific preparation subject (e.g., 'Dynamic Programming', 'SQL Optimization')."
+    )
+    importance: ImportanceLevel = Field(
+        ..., description="Criticality of this topic for clearing selection."
+    )
+    target_round_type: SelectionRoundType = Field(
+        ..., description="Selection round this topic prepares the candidate for."
+    )
+    recommended_focus: str = Field(
+        ..., min_length=10, description="Actionable preparation directives or focus areas."
+    )
+    evidence: List[Evidence] = Field(
+        ..., min_length=1, description="Evidence supporting this preparation priority."
+    )
+
+    model_config = {"use_enum_values": True}
+
+
+class PreparationIntelligence(BaseModel):
+    """
+    Candidate preparation intelligence derived from selection rounds and expectations.
+    """
+
+    priority_topics: List[PreparationTopic] = Field(
+        default_factory=list, description="Ordered high-yield preparation subjects."
+    )
+    key_evaluation_focus: List[str] = Field(
+        default_factory=list, description="Core themes emphasized across rounds."
+    )
+
+    model_config = {"use_enum_values": True}
+
+
+# ===========================================================================
+# 11b. Drive Evaluation Intelligence (Phase 4.4)
+# ===========================================================================
+
+
+class DriveDifficultyIntelligence(BaseModel):
+    """
+    Explainable competitive difficulty assessment of a Placement Drive.
+
+    Determines overall drive competitiveness through reasoned analysis of
+    the drive's selection process, technology requirements, and hiring signals.
+
+    Design guarantees:
+        - ``level`` is taxonomy-bounded to DriveDifficultyLevel.
+        - ``difficulty_factors`` are human-readable explanatory labels.
+        - ``reasoning`` is a concise narrative explanation.
+        - No numeric scores are produced or stored.
+        - ``evidence`` must be non-empty (Governance Layer enforces this).
+    """
+
+    level: DriveDifficultyLevel = Field(
+        ..., description="Overall competitive difficulty level of this drive."
+    )
+    difficulty_factors: List[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Specific human-readable factors that contribute to this difficulty level. "
+            "Examples: 'Strong DSA Focus', 'Multiple Elimination Rounds', 'Tier-1 Company'."
+        ),
+    )
+    reasoning: str = Field(
+        ...,
+        min_length=20,
+        description="Concise narrative explaining the difficulty classification.",
+    )
+    confidence: DriveConfidenceLevel = Field(
+        ..., description="Engine confidence in the difficulty assessment."
+    )
+    evidence: List[Evidence] = Field(
+        ..., min_length=1, description="Evidence supporting the difficulty assessment."
+    )
+
+    model_config = {"use_enum_values": True}
+
+
+class PlacementRelevanceIntelligence(BaseModel):
+    """
+    Drive characterization describing which candidate profiles align best.
+
+    This is drive-side characterization, NOT candidate matching. It describes
+    who the drive is designed for based solely on the drive's intelligence
+    artifacts — no candidate data is used.
+
+    Purpose:
+        - Enables candidates to self-assess fit with a drive.
+        - Guides placement officers in targeted drive promotion.
+        - Phase 5 uses this as the drive-side profile for alignment scoring.
+
+    Design guarantees:
+        - All fields are derived exclusively from drive intelligence.
+        - No candidate records are consulted or referenced.
+        - ``evidence`` must be non-empty (Governance Layer enforces this).
+    """
+
+    target_candidate_profiles: List[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Candidate role/archetype profiles that align best with this drive. "
+            "Examples: 'Backend Developers', 'Competitive Programmers', 'ML Engineers'."
+        ),
+    )
+    preferred_backgrounds: List[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Candidate background characteristics that provide a competitive advantage. "
+            "Examples: 'Strong DSA', 'Production Projects', 'Internship Experience'."
+        ),
+    )
+    project_alignment_areas: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Project domains or technology areas that align with this drive. "
+            "Examples: 'Distributed Systems', 'React Applications', 'Cloud Platforms'."
+        ),
+    )
+    preparation_priorities: List[str] = Field(
+        ...,
+        min_length=1,
+        description=(
+            "Key preparation areas a candidate should focus on. "
+            "Examples: 'Data Structures & Algorithms', 'System Design', 'SQL Optimization'."
+        ),
+    )
+    confidence: DriveConfidenceLevel = Field(
+        ..., description="Engine confidence in this relevance characterization."
+    )
+    evidence: List[Evidence] = Field(
+        ..., min_length=1, description="Evidence supporting this relevance characterization."
+    )
+
+    model_config = {"use_enum_values": True}
+
+
+# ===========================================================================
+# 12. DriveIntelligenceProfile — Aggregate Root
 # ===========================================================================
 
 
@@ -421,7 +668,7 @@ class DriveIntelligenceProfile(BaseModel):
     """
     The complete structured intelligence extracted from a placement drive JD.
 
-    This is the output contract of the DriveIntelligenceEngine (Phase 4.3)
+    This is the output contract of the DriveIntelligenceEngine (Phase 4.3/4.5)
     and the input contract of the Phase 5 matching and ranking systems.
 
     Design guarantees:
@@ -481,6 +728,46 @@ class DriveIntelligenceProfile(BaseModel):
     success_indicators: List[SuccessIndicator] = Field(
         default_factory=list,
         description="Candidate traits that correlate with success in this drive.",
+    )
+    service_agreements: List[ServiceAgreementIntelligence] = Field(
+        default_factory=list,
+        description="Service bond or contract requirements.",
+    )
+    work_arrangements: List[WorkArrangementIntelligence] = Field(
+        default_factory=list,
+        description="Work modes and office locations.",
+    )
+    shifts: List[ShiftIntelligence] = Field(
+        default_factory=list,
+        description="Shift requirements.",
+    )
+    experience_requirements: List[ExperienceIntelligence] = Field(
+        default_factory=list,
+        description="Expected experience level and duration.",
+    )
+    compensation: List[CompensationIntelligence] = Field(
+        default_factory=list,
+        description="Compensation structure details.",
+    )
+    preparation: Optional[PreparationIntelligence] = Field(
+        default=None,
+        description="Actionable preparation guidance and priority study topics.",
+    )
+
+    # Phase 4.4 — Drive Evaluation Engine artifacts (Optional for backward compatibility)
+    difficulty: Optional[DriveDifficultyIntelligence] = Field(
+        default=None,
+        description=(
+            "Explainable competitive difficulty assessment. "
+            "Backward-compatible: None for v1.0–v1.2 snapshots."
+        ),
+    )
+    placement_relevance: Optional[PlacementRelevanceIntelligence] = Field(
+        default=None,
+        description=(
+            "Drive characterization for target candidate profile alignment. "
+            "Backward-compatible: None for v1.0–v1.2 snapshots."
+        ),
     )
 
     model_config = {"use_enum_values": True}
