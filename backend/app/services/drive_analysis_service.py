@@ -51,7 +51,7 @@ from app.analysis.engines.drive_intelligence_engine import (
     ANALYSIS_VERSION,
     DriveIntelligenceEngine,
 )
-from app.core.enums import DriveAnalysisStatus
+from app.core.enums import DriveAnalysisStatus, DriveStatus
 from app.drives.parsers.contract import ParsedDriveContent
 from app.models.drive import Drive
 from app.models.drive_analysis import DriveAnalysis
@@ -79,7 +79,7 @@ _COST_PER_1M_OUTPUT_TOKENS: float = float(
 # ---------------------------------------------------------------------------
 
 
-def _get_drive_or_404(db: Session, drive_id: int) -> Drive:
+def _get_drive_or_404(db: Session, drive_id: uuid.UUID) -> Drive:
     drive = db.get(Drive, drive_id)
     if drive is None:
         from fastapi import HTTPException
@@ -87,7 +87,7 @@ def _get_drive_or_404(db: Session, drive_id: int) -> Drive:
     return drive
 
 
-def _get_latest_source_or_404(db: Session, drive_id: int) -> DriveSource:
+def _get_latest_source_or_404(db: Session, drive_id: uuid.UUID) -> DriveSource:
     source = (
         db.query(DriveSource)
         .filter(DriveSource.drive_id == drive_id)
@@ -148,7 +148,7 @@ def _estimate_cost(input_tokens: int, output_tokens: int) -> float:
 
 def create_analysis_record(
     db: Session,
-    drive_id: int,
+    drive_id: uuid.UUID,
     *,
     prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> DriveAnalysis:
@@ -200,7 +200,7 @@ def create_analysis_record(
     db.flush()
 
     logger.info(
-        "DriveAnalysis PENDING | analysis_id=%s drive_id=%d source_version=%d",
+        "DriveAnalysis PENDING | analysis_id=%s drive_id=%s source_version=%d",
         analysis.id,
         drive_id,
         source.version,
@@ -253,6 +253,9 @@ async def execute_analysis_background(
         new_meta = {**meta, "failure_reason": "GOVERNANCE_VALIDATION_ERROR", "validation_stage": "governance_layer"}
         analysis.processing_metadata = new_meta
         
+        if drive.status == DriveStatus.analyzing:
+            drive.status = DriveStatus.analysis_failed
+            
         db.commit()
         logger.error("DriveAnalysis FAILED | GovernanceValidationError | analysis_id=%s", analysis_id)
         return analysis
@@ -266,6 +269,9 @@ async def execute_analysis_background(
         new_meta = {**meta, "failure_reason": "ENGINE_ERROR", "validation_stage": "engine_execution"}
         analysis.processing_metadata = new_meta
         
+        if drive.status == DriveStatus.analyzing:
+            drive.status = DriveStatus.analysis_failed
+            
         db.commit()
         logger.error("DriveAnalysis FAILED | EngineError | analysis_id=%s", analysis_id, exc_info=True)
         return analysis
@@ -309,6 +315,9 @@ async def execute_analysis_background(
         **governance_dict,
     }
     analysis.processing_metadata = new_meta
+    
+    if drive.status == DriveStatus.analyzing:
+        drive.status = DriveStatus.ready
 
     db.commit()
 
@@ -322,7 +331,7 @@ async def execute_analysis_background(
 
 def get_analysis_history(
     db: Session,
-    drive_id: int,
+    drive_id: uuid.UUID,
     *,
     limit: int = 20,
 ) -> List[DriveAnalysis]:
@@ -348,7 +357,7 @@ def get_analysis_history(
 
 def get_latest_snapshot(
     db: Session,
-    drive_id: int,
+    drive_id: uuid.UUID,
 ) -> Optional[DriveSnapshotModel]:
     """
     Return the most recently created DriveSnapshot for a drive.
@@ -368,7 +377,7 @@ def get_latest_snapshot(
 
 def get_snapshot_by_id(
     db: Session,
-    drive_id: int,
+    drive_id: uuid.UUID,
     snapshot_id: str,
 ) -> Optional[DriveSnapshotModel]:
     """

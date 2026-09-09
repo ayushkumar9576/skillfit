@@ -32,6 +32,7 @@ Versioning:
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Optional
+import uuid
 
 #: Bump this when ParsedDriveContent structure changes.
 #: Corresponds to DriveSource.parser_version in the DB.
@@ -107,7 +108,7 @@ class ParsedDriveContent:
         duplicate_of_version: Version number of the earlier duplicate, if applicable.
     """
     contract_version: str
-    drive_id: int
+    drive_id: uuid.UUID
     source_id: str
     source_version: int
     source_metadata: SourceMetadata

@@ -72,7 +72,7 @@ class DriveAnalysis(Base):
     # -----------------------------------------------------------------------
 
     drive_id = Column(
-        Integer,
+        UUID(as_uuid=True),
         ForeignKey("drives.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

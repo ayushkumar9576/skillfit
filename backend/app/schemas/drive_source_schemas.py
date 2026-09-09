@@ -22,6 +22,7 @@ Scope (Phase 4.2):
 
 from datetime import datetime
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -73,7 +74,7 @@ class DriveSourceResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(..., description="UUID of the DriveSource record.")
-    drive_id: int = Field(..., description="Parent Drive integer PK.")
+    drive_id: UUID = Field(..., description="Parent Drive UUID PK.")
     version: int = Field(..., description="Monotonic version number within this drive.")
     source_format: DriveSourceFormat = Field(..., description="Input format: pdf or text.")
     original_filename: Optional[str] = Field(
@@ -130,7 +131,7 @@ class DriveSourceListResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    drive_id: int
+    drive_id: UUID
     sources: List[DriveSourceResponse]
     total: int = Field(..., description="Total number of source versions.")
 
@@ -148,7 +149,7 @@ class ParsedContentResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    drive_id: int
+    drive_id: UUID
     source_id: str = Field(..., description="UUID of the DriveSource that produced this content.")
     source_version: int
     source_format: DriveSourceFormat
@@ -185,7 +186,7 @@ class IngestionResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     message: str = Field(..., description="Human-readable success message.")
-    drive_id: int
+    drive_id: UUID
     source_id: str
     source_version: int
     source_format: DriveSourceFormat

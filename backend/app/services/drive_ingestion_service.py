@@ -39,6 +39,7 @@ import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Optional
+import uuid
 
 from fastapi import UploadFile
 from sqlalchemy.orm import Session
@@ -83,7 +84,7 @@ _PDF_SIGNATURE: bytes = b"%PDF-"
 def _validate_pdf_upload(
     file_bytes: bytes,
     original_filename: str,
-    drive_id: int,
+    drive_id: uuid.UUID,
 ) -> None:
     """
     Multi-layer PDF validation.
@@ -174,7 +175,7 @@ def _validate_pdf_upload(
         ) from exc
 
 
-def _validate_text_input(text: str, drive_id: int) -> None:
+def _validate_text_input(text: str, drive_id: uuid.UUID) -> None:
     """
     Validate raw text submission.
 
@@ -203,7 +204,7 @@ def _validate_text_input(text: str, drive_id: int) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _next_version(db: Session, drive_id: int) -> int:
+def _next_version(db: Session, drive_id: uuid.UUID) -> int:
     """
     Determine the next version number for a DriveSource under this drive.
 
@@ -228,7 +229,7 @@ def _next_version(db: Session, drive_id: int) -> int:
 
 
 def _find_duplicate_version(
-    db: Session, drive_id: int, content_hash: str
+    db: Session, drive_id: uuid.UUID, content_hash: str
 ) -> Optional[int]:
     """
     Return the version number of an existing DriveSource with the same hash,
@@ -527,7 +528,7 @@ def ingest_text_submission(
 
 def get_latest_drive_source(
     db: Session,
-    drive_id: int,
+    drive_id: uuid.UUID,
 ) -> Optional[DriveSource]:
     """
     Retrieve the most recent DriveSource for a given drive (by version DESC).
@@ -536,7 +537,7 @@ def get_latest_drive_source(
 
     Args:
         db:       Active SQLAlchemy session.
-        drive_id: Integer PK of the Drive.
+        drive_id: UUID PK of the Drive.
 
     Returns:
         DriveSource ORM object or None.
@@ -573,14 +574,14 @@ def get_drive_source_by_id(
 
 def list_drive_sources(
     db: Session,
-    drive_id: int,
+    drive_id: uuid.UUID,
 ) -> list[DriveSource]:
     """
     List all DriveSource records for a drive, ordered by version ascending.
 
     Args:
         db:       Active SQLAlchemy session.
-        drive_id: Integer PK of the Drive.
+        drive_id: UUID PK of the Drive.
 
     Returns:
         List of DriveSource ORM objects.

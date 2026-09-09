@@ -122,7 +122,7 @@ class DriveSource(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
 
     drive_id = Column(
-        Integer,
+        UUID(as_uuid=True),
         ForeignKey("drives.id", ondelete="CASCADE"),
         nullable=False,
         index=True,

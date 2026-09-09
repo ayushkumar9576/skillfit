@@ -23,6 +23,7 @@ Scope (Phase 4.1 only):
 
 from datetime import date, datetime
 from typing import Any, Dict, List, Optional
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -52,6 +53,12 @@ class DriveCreateRequest(BaseModel):
         max_length=150,
         description="Role/position title for this placement drive.",
     )
+    placement_season: str = Field(
+        ...,
+        max_length=50,
+        description="The academic placement season (e.g. '2026-2027').",
+        pattern=r"^\d{4}-\d{4}$"
+    )
     job_type: Optional[str] = Field(
         None,
         max_length=50,
@@ -79,18 +86,6 @@ class DriveCreateRequest(BaseModel):
         None,
         description="Application closing date.",
     )
-    required_skills: Optional[List[str]] = Field(
-        default_factory=list,
-        description="Manually specified required skills (raw list, not normalized yet).",
-    )
-    preferred_skills: Optional[List[str]] = Field(
-        default_factory=list,
-        description="Manually specified preferred/nice-to-have skills.",
-    )
-    structured_eligibility: Optional[Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Structured eligibility criteria (CGPA, branch, etc.).",
-    )
     status: DriveStatus = Field(
         DriveStatus.draft,
         description="Initial lifecycle status. Defaults to 'draft'.",
@@ -110,15 +105,13 @@ class DriveUpdateRequest(BaseModel):
 
     company_name: Optional[str] = Field(None, max_length=200)
     role: Optional[str] = Field(None, max_length=150)
+    placement_season: Optional[str] = Field(None, max_length=50, pattern=r"^\d{4}-\d{4}$")
     job_type: Optional[str] = Field(None, max_length=50)
     location: Optional[str] = Field(None, max_length=150)
     package: Optional[str] = Field(None, max_length=100)
     eligibility_criteria: Optional[str] = None
     description: Optional[str] = None
     application_deadline: Optional[date] = None
-    required_skills: Optional[List[str]] = None
-    preferred_skills: Optional[List[str]] = None
-    structured_eligibility: Optional[Dict[str, Any]] = None
     status: Optional[DriveStatus] = Field(
         None,
         description="Update drive lifecycle status.",
@@ -139,18 +132,16 @@ class DriveResponse(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    id: int = Field(..., description="Unique integer identifier of the drive.")
+    id: UUID = Field(..., description="Unique UUID identifier of the drive.")
     company_name: str
     role: str
+    placement_season: str
     job_type: Optional[str] = None
     location: Optional[str] = None
     package: Optional[str] = None
     eligibility_criteria: Optional[str] = None
     description: Optional[str] = None
     application_deadline: Optional[date] = None
-    required_skills: Optional[List[str]] = None
-    preferred_skills: Optional[List[str]] = None
-    structured_eligibility: Optional[Dict[str, Any]] = None
     status: DriveStatus
     source_type: DriveSourceType
     created_at: datetime
@@ -183,7 +174,7 @@ class DriveSnapshotResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(..., description="UUID of the snapshot record.")
-    drive_id: int = Field(..., description="Source drive integer PK.")
+    drive_id: UUID = Field(..., description="Source drive UUID PK.")
     snapshot_version: str = Field(..., description="Schema version of DriveIntelligenceProfile.")
     analysis_version: str = Field(..., description="Pipeline version that produced this snapshot.")
     intelligence_payload: Dict[str, Any] = Field(

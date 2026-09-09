@@ -26,9 +26,10 @@ Design:
 from datetime import date, datetime
 from typing import List, Optional
 
-from sqlalchemy import Date, Enum as SQLAlchemyEnum, String, Text, func
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import Date, Enum as SQLAlchemyEnum, String, Text, func, Index
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+import uuid
 
 from app.db.database import Base
 from app.core.enums import DriveStatus, DriveSourceType
@@ -44,19 +45,21 @@ class Drive(Base):
 
     __tablename__ = "drives"
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4
+    )
     company_name: Mapped[str] = mapped_column(String(200), nullable=False)
     role: Mapped[str] = mapped_column(String(150), nullable=False)
+    placement_season: Mapped[str] = mapped_column(String(50), nullable=False)
+    drive_fingerprint: Mapped[str] = mapped_column(String(64), unique=True, index=True, nullable=False)
     job_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     location: Mapped[Optional[str]] = mapped_column(String(150), nullable=True)
     package: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     eligibility_criteria: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     application_deadline: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
-
-    required_skills: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
-    preferred_skills: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True)
-    structured_eligibility: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
 
     # Phase 4.1 — entity lifecycle tracking
     status: Mapped[DriveStatus] = mapped_column(
@@ -75,11 +78,6 @@ class Drive(Base):
     created_at: Mapped[datetime] = mapped_column(server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(
         server_default=func.now(), onupdate=func.now(), nullable=False
-    )
-
-    # Existing relationships
-    recommendations: Mapped[List["Recommendation"]] = relationship(
-        "Recommendation", back_populates="drive", cascade="all, delete-orphan"
     )
 
     # Phase 4.1 — Drive Intelligence persistence relationship
@@ -108,5 +106,9 @@ class Drive(Base):
     def __repr__(self) -> str:
         return (
             f"<Drive id={self.id} company={self.company_name!r} "
-            f"role={self.role!r} status={self.status.value}>"
+            f"role={self.role!r} season={self.placement_season!r} status={self.status.value}>"
         )
+
+    __table_args__ = (
+        Index("ix_drives_company_role_season", "company_name", "role", "placement_season"),
+    )

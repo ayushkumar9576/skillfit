@@ -35,9 +35,11 @@ Auth:
 
 import logging
 from typing import List, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
+from datetime import date
 
 from app.analysis.engines.executor import AnalysisExecutor
 
@@ -81,19 +83,74 @@ router = APIRouter(prefix="/api/v1/drives", tags=["Drives"])
 # ===========================================================================
 
 
+def drive_create_form_dep(
+    company_name: str = Form(...),
+    role: str = Form(...),
+    placement_season: str = Form(...),
+    job_type: Optional[str] = Form(None),
+    location: Optional[str] = Form(None),
+    package: Optional[str] = Form(None),
+    eligibility_criteria: Optional[str] = Form(None),
+    description: Optional[str] = Form(None),
+    application_deadline: Optional[date] = Form(None),
+) -> DriveCreateRequest:
+    from pydantic import ValidationError
+    from fastapi.exceptions import RequestValidationError
+    
+    try:
+        return DriveCreateRequest(
+            company_name=company_name,
+            role=role,
+            placement_season=placement_season,
+            job_type=job_type,
+            location=location,
+            package=package,
+            eligibility_criteria=eligibility_criteria,
+            description=description,
+            application_deadline=application_deadline,
+        )
+    except ValidationError as e:
+        raise RequestValidationError(e.errors())
+
 @router.post("", response_model=DriveResponse, status_code=status.HTTP_201_CREATED)
 def create_drive(
-    data: DriveCreateRequest,
+    background_tasks: BackgroundTasks,
+    data: DriveCreateRequest = Depends(drive_create_form_dep),
+    jd_text: Optional[str] = Form(None),
+    pdf_file: Optional[UploadFile] = File(None),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin)),
 ):
     """
-    Create a new Placement Drive.
+    Create a new Placement Drive via multipart/form-data.
 
-    Requires admin role. The drive is created in `draft` status by default.
-    Intelligence generation (Phase 4.3) is not triggered at creation time.
+    Requires admin role. A JD (Text or PDF) is strictly required.
+    Triggers analysis automatically.
     """
-    drive = drive_service.create_drive(db, data)
+    if not (jd_text or pdf_file) or (jd_text and pdf_file):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="A job description is required. Provide either JD text or a PDF."
+        )
+
+    try:
+        drive, analysis = drive_service.create_drive_with_jd(
+            db=db,
+            data=data,
+            jd_text=jd_text,
+            pdf_file=pdf_file
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except drive_service.DuplicateDriveError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
+
+    executor = AnalysisExecutor(background_tasks)
+    executor.submit_analysis(analysis.id)
+
     return drive
 
 
@@ -107,27 +164,32 @@ def list_drives(
     skip: int = Query(0, ge=0, description="Pagination offset."),
     limit: int = Query(50, ge=1, le=200, description="Pagination limit."),
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
+    user: User = Depends(require_roles(UserRole.admin, UserRole.faculty, UserRole.student)),
 ):
     """
     List Placement Drives with optional status filtering and pagination.
 
-    Accessible to admin and faculty roles.
+    Accessible to admin, faculty, and student roles.
+    Students only ever see PUBLISHED drives.
     """
+    if user.role == UserRole.student:
+        status_filter = DriveStatus.published
+
     drives = drive_service.list_drives(db, status=status_filter, skip=skip, limit=limit)
     return DriveListResponse(drives=drives, total=len(drives))
 
 
 @router.get("/{drive_id}", response_model=DriveResponse)
 def get_drive(
-    drive_id: int,
+    drive_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
+    user: User = Depends(require_roles(UserRole.admin, UserRole.faculty, UserRole.student)),
 ):
     """
     Retrieve a single Placement Drive by its integer ID.
 
-    Returns 404 if the drive does not exist.
+    Returns 404 if the drive does not exist, or if accessed by a student
+    and the drive is not published.
     """
     drive = drive_service.get_drive(db, drive_id)
     if not drive:
@@ -135,12 +197,19 @@ def get_drive(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Drive {drive_id} not found.",
         )
+        
+    if user.role == UserRole.student and drive.status != DriveStatus.published:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Drive {drive_id} not found.",
+        )
+        
     return drive
 
 
 @router.patch("/{drive_id}", response_model=DriveResponse)
 def update_drive(
-    drive_id: int,
+    drive_id: UUID,
     data: DriveUpdateRequest,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin)),
@@ -156,8 +225,20 @@ def update_drive(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Drive {drive_id} not found.",
         )
-    updated = drive_service.update_drive(db, drive, data)
-    return updated
+    
+    try:
+        updated = drive_service.update_drive(db, drive, data)
+        return updated
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        )
+    except drive_service.DuplicateDriveError as e:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(e),
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -167,7 +248,7 @@ def update_drive(
 
 @router.get("/{drive_id}/snapshot", response_model=DriveSnapshotResponse)
 def get_drive_snapshot(
-    drive_id: int,
+    drive_id: UUID,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
 ):
@@ -222,22 +303,17 @@ def get_drive_snapshot(
     summary="Upload a PDF job description for a drive.",
 )
 def upload_drive_pdf(
-    drive_id: int,
+    drive_id: UUID,
+    background_tasks: BackgroundTasks,
     file: UploadFile = File(..., description="PDF job description file."),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin)),
 ):
     """
-    Upload and ingest a PDF job description for a Placement Drive.
+    Upload and ingest a revised PDF job description for a Placement Drive.
 
-    The file is validated (size, extension, MIME type, PDF integrity),
-    extracted via pdfplumber, normalised, and persisted as a new versioned
-    DriveSource record.
-
-    If the same content has been uploaded before, a new version is still
-    created and flagged as a duplicate in the response.
-
-    Requires admin role.
+    A JD Revision immediately transitions the drive to ANALYZING and invalidates
+    any prior publication. Requires admin role.
     """
     drive = drive_service.get_drive(db, drive_id)
     if not drive:
@@ -285,6 +361,14 @@ def upload_drive_pdf(
         "UPLOAD_COMPLETED drive_id=%d source_id=%s version=%d chars=%d",
         drive_id, parsed.source_id, parsed.source_version, parsed.statistics.character_count,
     )
+    
+    # Trigger analysis on JD Revision
+    analysis = drive_analysis_service.create_analysis_record(db, drive.id)
+    drive.status = DriveStatus.analyzing
+    db.commit()
+
+    executor = AnalysisExecutor(background_tasks)
+    executor.submit_analysis(analysis.id)
 
     return IngestionResponse(
         message="Job description PDF uploaded and parsed successfully.",
@@ -313,19 +397,17 @@ def upload_drive_pdf(
     summary="Submit raw text job description for a drive.",
 )
 def submit_drive_text(
-    drive_id: int,
+    drive_id: UUID,
     data: TextSubmissionRequest,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin)),
 ):
     """
     Submit a raw text job description for a Placement Drive.
 
-    The text is validated (size, minimum length), passed through the standard
-    extraction and normalisation pipeline, and persisted as a new versioned
-    DriveSource record.
-
-    Requires admin role.
+    A JD Revision immediately transitions the drive to ANALYZING and invalidates
+    any prior publication. Requires admin role.
     """
     drive = drive_service.get_drive(db, drive_id)
     if not drive:
@@ -371,6 +453,14 @@ def submit_drive_text(
         "TEXT_SUBMISSION_COMPLETED drive_id=%d source_id=%s version=%d chars=%d",
         drive_id, parsed.source_id, parsed.source_version, parsed.statistics.character_count,
     )
+    
+    # Trigger analysis on JD Revision
+    analysis = drive_analysis_service.create_analysis_record(db, drive.id)
+    drive.status = DriveStatus.analyzing
+    db.commit()
+
+    executor = AnalysisExecutor(background_tasks)
+    executor.submit_analysis(analysis.id)
 
     return IngestionResponse(
         message="Job description text submitted and parsed successfully.",
@@ -398,7 +488,7 @@ def submit_drive_text(
     summary="Retrieve the latest normalised job description content.",
 )
 def get_latest_content(
-    drive_id: int,
+    drive_id: UUID,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
 ):
@@ -468,7 +558,7 @@ def get_latest_content(
     summary="List all source versions for a drive.",
 )
 def list_drive_sources(
-    drive_id: int,
+    drive_id: UUID,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
 ):
@@ -504,7 +594,7 @@ def list_drive_sources(
     summary="Retrieve a specific source record by UUID.",
 )
 def get_drive_source(
-    drive_id: int,
+    drive_id: UUID,
     source_id: str,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
@@ -544,7 +634,7 @@ def get_drive_source(
     summary="Trigger Drive Intelligence Analysis",
 )
 async def analyze_drive(
-    drive_id: int,
+    drive_id: UUID,
     background_tasks: BackgroundTasks,
     body: AnalyzeDriveRequest = AnalyzeDriveRequest(),
     db: Session = Depends(get_db),
@@ -592,7 +682,7 @@ async def analyze_drive(
     summary="Get Drive Intelligence Analysis History",
 )
 def get_analysis_history(
-    drive_id: int,
+    drive_id: UUID,
     limit: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
@@ -627,7 +717,7 @@ def get_analysis_history(
     summary="List Drive Intelligence Snapshots",
 )
 def list_snapshots(
-    drive_id: int,
+    drive_id: UUID,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
 ):
@@ -657,12 +747,43 @@ def list_snapshots(
 
 
 @router.get(
+    "/{drive_id}/snapshots/latest",
+    response_model=SnapshotDetailResponse,
+    summary="Get Latest Drive Intelligence Snapshot",
+)
+def get_latest_snapshot(
+    drive_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
+):
+    """
+    Retrieve the most recent Drive Intelligence snapshot for a drive.
+    Returns 404 if no snapshots exist.
+    """
+    from sqlalchemy import desc
+    from app.models.drive_snapshot import DriveSnapshotModel
+
+    snapshot = (
+        db.query(DriveSnapshotModel)
+        .filter(DriveSnapshotModel.drive_id == drive_id)
+        .order_by(desc(DriveSnapshotModel.created_at))
+        .first()
+    )
+    if not snapshot:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No snapshots found for drive {drive_id}.",
+        )
+    return SnapshotDetailResponse.model_validate(snapshot)
+
+
+@router.get(
     "/{drive_id}/snapshots/{snapshot_id}",
     response_model=SnapshotDetailResponse,
     summary="Get Drive Intelligence Snapshot Detail",
 )
 def get_snapshot(
-    drive_id: int,
+    drive_id: UUID,
     snapshot_id: str,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
