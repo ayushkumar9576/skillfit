@@ -1,12 +1,12 @@
 import React from "react";
-import { DriveSnapshot } from "@/types/drives";
+import { SnapshotSummaryResponse } from "@/types/drives";
 import { CheckCircle2, Clock } from "lucide-react";
 import SnapshotChangeSummary from "./SnapshotChangeSummary";
 import { useDriveSnapshot } from "../context/SnapshotProvider";
 
 interface SnapshotVersionCardProps {
-  snapshot: DriveSnapshot;
-  previousSnapshot?: DriveSnapshot;
+  snapshot: SnapshotSummaryResponse;
+  previousSnapshot?: SnapshotSummaryResponse;
   isLatest: boolean;
 }
 

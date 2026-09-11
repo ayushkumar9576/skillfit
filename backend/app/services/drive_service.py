@@ -204,6 +204,12 @@ def update_drive(
         allowed = VALID_TRANSITIONS.get(drive.status, set())
         if new_status not in allowed:
             raise ValueError(f"Invalid state transition from {drive.status.value} to {new_status.value}")
+        
+        # Publish integrity gate: A drive cannot be published without a snapshot
+        if new_status == DriveStatus.published:
+            snapshot = get_latest_drive_snapshot(db, drive.id)
+            if not snapshot:
+                raise ValueError("Cannot publish a drive without a valid intelligence snapshot.")
     
     new_company = update_data.get('company_name', drive.company_name)
     new_role = update_data.get('role', drive.role)

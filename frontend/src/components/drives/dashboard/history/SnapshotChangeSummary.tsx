@@ -1,10 +1,10 @@
 import React, { useMemo } from "react";
-import { DriveSnapshot } from "@/types/drives";
+import { SnapshotSummaryResponse } from "@/types/drives";
 import { ArrowRight, Plus, Minus, GitCommit } from "lucide-react";
 
 interface SnapshotChangeSummaryProps {
-  current: DriveSnapshot;
-  previous?: DriveSnapshot;
+  current: SnapshotSummaryResponse;
+  previous?: SnapshotSummaryResponse;
 }
 
 export default function SnapshotChangeSummary({ current, previous }: SnapshotChangeSummaryProps) {
@@ -14,8 +14,8 @@ export default function SnapshotChangeSummary({ current, previous }: SnapshotCha
     const changes: React.ReactNode[] = [];
 
     // 1. Difficulty Change
-    const currDiff = current.intelligence_payload?.difficulty?.level;
-    const prevDiff = previous.intelligence_payload?.difficulty?.level;
+    const currDiff = (current as any).intelligence_payload?.difficulty?.level;
+    const prevDiff = (previous as any).intelligence_payload?.difficulty?.level;
     if (currDiff && prevDiff && currDiff !== prevDiff) {
       changes.push(
         <div key="diff" className="flex items-center gap-2 text-sm">
@@ -30,8 +30,8 @@ export default function SnapshotChangeSummary({ current, previous }: SnapshotCha
     }
 
     // 2. Technology Counts
-    const currTechs = current.intelligence_payload?.technologies?.map(t => t.name) || [];
-    const prevTechs = previous.intelligence_payload?.technologies?.map(t => t.name) || [];
+    const currTechs = (current as any).intelligence_payload?.technologies?.map((t: any) => t.name) || [];
+    const prevTechs = (previous as any).intelligence_payload?.technologies?.map((t: any) => t.name) || [];
     
     const addedTechs = currTechs.filter(t => !prevTechs.includes(t));
     const removedTechs = prevTechs.filter(t => !currTechs.includes(t));
@@ -69,8 +69,8 @@ export default function SnapshotChangeSummary({ current, previous }: SnapshotCha
     }
 
     // 3. Qualifications Count Change (Simple heuristic)
-    const currQuals = current.intelligence_payload?.qualifications?.length || 0;
-    const prevQuals = previous.intelligence_payload?.qualifications?.length || 0;
+    const currQuals = (current as any).intelligence_payload?.qualifications?.length || 0;
+    const prevQuals = (previous as any).intelligence_payload?.qualifications?.length || 0;
     if (currQuals !== prevQuals) {
       changes.push(
         <div key="quals" className="flex items-center gap-2 text-sm mt-1">

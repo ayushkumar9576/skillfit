@@ -696,7 +696,8 @@ def get_analysis_history(
     Auth: admin, faculty.
     """
     # Validate drive exists
-    drive = db.get(__import__("app.models.drive", fromlist=["Drive"]).Drive, drive_id)
+    from app.models.drive import Drive
+    drive = db.get(Drive, drive_id)
     if not drive:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

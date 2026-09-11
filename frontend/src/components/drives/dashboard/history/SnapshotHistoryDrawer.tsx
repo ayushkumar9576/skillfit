@@ -1,7 +1,7 @@
 import React, { useMemo } from "react";
 import { DriveResponse } from "@/types/drives";
 import { History, X } from "lucide-react";
-import { useAnalysisHistory } from "@/hooks/drives/useAnalysis";
+import { useSnapshotHistory } from "@/hooks/drives/useSnapshots";
 import SnapshotVersionCard from "./SnapshotVersionCard";
 
 interface SnapshotHistoryDrawerProps {
@@ -12,7 +12,7 @@ interface SnapshotHistoryDrawerProps {
 }
 
 export default function SnapshotHistoryDrawer({ driveId, drive, isOpen, onClose }: SnapshotHistoryDrawerProps) {
-  const { data: history, isLoading } = useAnalysisHistory(driveId, drive);
+  const { data: history, isLoading } = useSnapshotHistory(driveId);
 
   // Focus trap logic can be added here similar to EvidenceModal
   // For brevity, skipping full trap, focusing on UI structure.
@@ -47,15 +47,15 @@ export default function SnapshotHistoryDrawer({ driveId, drive, isOpen, onClose 
             <div className="flex justify-center py-10">
               <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500"></div>
             </div>
-          ) : history?.analyses && history.analyses.length > 0 ? (
+          ) : history?.snapshots && history.snapshots.length > 0 ? (
             <div className="relative border-l-2 border-slate-200 ml-4 space-y-8 pb-8">
-              {history.analyses.map((snapshot, idx) => {
-                const previousSnapshot = idx < history.analyses.length - 1 ? history.analyses[idx + 1] : undefined;
+              {history.snapshots.map((snapshot, idx) => {
+                const previousSnapshot = idx < history.snapshots.length - 1 ? history.snapshots[idx + 1] : undefined;
                 return (
                   <SnapshotVersionCard 
                     key={snapshot.id} 
-                    snapshot={snapshot} 
-                    previousSnapshot={previousSnapshot}
+                    snapshot={snapshot as any} 
+                    previousSnapshot={previousSnapshot as any}
                     isLatest={idx === 0} 
                   />
                 );
