@@ -27,6 +27,9 @@ export const mockCandidateProfile: CandidateIntelligenceProfile = {
       "Lacks enterprise testing rigor."
     ]
   },
+  project_sophistication: [],
+  average_project_sophistication: 2,
+  highest_project_sophistication: 3,
   technologies: [
     {
       technology: "Python",

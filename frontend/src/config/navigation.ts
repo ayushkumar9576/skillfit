@@ -18,6 +18,7 @@ import {
   Settings,
   Users,
   FileText,
+  Building2,
   type LucideIcon,
 } from "lucide-react";
 
@@ -30,6 +31,7 @@ export const iconMap: Record<string, LucideIcon> = {
   Settings,
   Users,
   FileText,
+  Building2,
 };
 
 export interface NavItem {
@@ -55,6 +57,7 @@ export const facultyNavigation: NavItem[] = [
 
 export const adminNavigation: NavItem[] = [
   { label: "Dashboard", href: "/admin/dashboard", icon: "LayoutDashboard" },
+  { label: "Placement Drives", href: "/admin/drives", icon: "Building2" },
   { label: "Users",     href: "/admin/users",     icon: "Users" },
   { label: "Resumes",   href: "/admin/resumes",   icon: "FileText" },
   { label: "Profile",   href: "/admin/profile",   icon: "User" },
