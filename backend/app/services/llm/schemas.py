@@ -282,8 +282,26 @@ def validate_response(raw_text: Optional[str], schema: Type[TSchema]) -> TSchema
                     _normalize_llm_json(item)
 
         _normalize_llm_json(data)
+        
+        if schema.__name__ == "DriveIntelligenceProfile":
+            print("================================================================================")
+            print("RAW DRIVE INTELLIGENCE RESPONSE")
+            print("===============================")
+            print(json.dumps(data, indent=2, default=str))
+
         return schema.model_validate(data)
     except ValidationError as exc:
+        if schema.__name__ == "DriveIntelligenceProfile":
+            print("================================================================================")
+            print("DRIVE PROFILE VALIDATION FAILED")
+            print("===============================")
+            for err in exc.errors():
+                print(f"Field: {'.'.join(str(loc) for loc in err['loc'])}")
+                print(f"Error: {err['msg']}")
+                print(f"Input: {err.get('input', 'N/A')}\n")
+            print("Errors JSON:")
+            print(exc.json())
+            
         raise LLMResponseError(
             f"Model response failed {schema.__name__} validation "
             f"({exc.error_count()} error(s))."

@@ -60,6 +60,7 @@ from app.models.drive_source import DriveSource
 from app.services.llm.exceptions import LLMError
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -171,7 +172,6 @@ def create_analysis_record(
             DriveAnalysis.prompt_version == prompt_version,
             DriveAnalysis.status.in_([
                 DriveAnalysisStatus.pending.value,
-                DriveAnalysisStatus.running.value,
                 DriveAnalysisStatus.completed.value,
             ]),
         )
@@ -225,15 +225,46 @@ async def execute_analysis_background(
         return analysis
 
     # --- Transition to RUNNING ---
+    import time
+    t0 = time.perf_counter()
+    drive = db.query(Drive).filter(Drive.id == analysis.drive_id).first()
+    
+    print(
+        "\033[96m\n================================================================================\n"
+        "🚀 DRIVE ANALYSIS PIPELINE\n"
+        "================================================================================\n"
+        f"Analysis ID : {analysis_id}\n"
+        f"Company     : {drive.company_name}\n"
+        f"Role        : {drive.role}\n"
+        "================================================================================\n\033[0m"
+    )
+
+    print("\033[96m################################################################################")
+    print("# STEP 1/5 - INITIALIZING INTELLIGENCE PIPELINE")
+    print("################################################################################\n\033[0m")
+    
     analysis.status = DriveAnalysisStatus.running.value
     analysis.started_at = datetime.now(timezone.utc)
     db.commit()
 
     source = db.query(DriveSource).filter(DriveSource.id == analysis.source_id).first()
-    drive = db.query(Drive).filter(Drive.id == analysis.drive_id).first()
+    
+    t1 = time.perf_counter()
+    print("\033[96m\n################################################################################")
+    print("# STEP 1/5 COMPLETED ✓")
+    print("################################################################################\n\033[0m")
+    
+    print("\033[96m################################################################################")
+    print("# STEP 2/5 - NORMALIZING JOB DESCRIPTION")
+    print("################################################################################\n\033[0m")
     
     _engine = engine or DriveIntelligenceEngine(prompt_version=analysis.prompt_version)
     content = _reconstruct_parsed_content(source)
+    
+    t2 = time.perf_counter()
+    print("\033[96m\n################################################################################")
+    print("# STEP 2/5 COMPLETED ✓")
+    print("################################################################################\n\033[0m")
 
     try:
         result = await _engine.analyze(
@@ -257,6 +288,7 @@ async def execute_analysis_background(
             drive.status = DriveStatus.analysis_failed
             
         db.commit()
+        print(f"\033[91mDriveAnalysis FAILED | GovernanceValidationError | analysis_id={analysis_id}\nError: {exc}\033[0m")
         logger.error("DriveAnalysis FAILED | GovernanceValidationError | analysis_id=%s", analysis_id)
         return analysis
     except (LLMError, Exception) as exc:
@@ -273,59 +305,105 @@ async def execute_analysis_background(
             drive.status = DriveStatus.analysis_failed
             
         db.commit()
+        print(f"\033[91mDriveAnalysis FAILED | EngineError | analysis_id={analysis_id}\nError: {exc}\033[0m")
         logger.error("DriveAnalysis FAILED | EngineError | analysis_id=%s", analysis_id, exc_info=True)
         return analysis
 
+    t4 = time.perf_counter()
     # --- Build and persist snapshot ---
-    token_usage = result.token_usage
-    estimated_cost = _estimate_cost(
-        token_usage.get("input_tokens", 0),
-        token_usage.get("output_tokens", 0),
-    )
-    governance_dict = result.governance_report.to_dict()
-
-    snapshot = DriveSnapshotModel(
-        id=uuid.uuid4(),
-        drive_id=analysis.drive_id,
-        source_id=analysis.source_id,
-        analysis_id=analysis.id,
-        snapshot_version=INTELLIGENCE_SCHEMA_VERSION,
-        analysis_version=ANALYSIS_VERSION,
-        prompt_version=result.prompt_version,
-        model_name=result.model_name,
-        intelligence_schema_version=INTELLIGENCE_SCHEMA_VERSION,
-        intelligence_payload=result.profile.to_snapshot_dict(),
-        metadata_payload={
-            "raw_llm_output_length": len(result.raw_llm_output),
-        },
-    )
-    db.add(snapshot)
+    print("\033[96m################################################################################")
+    print("# STEP 5/5 - FINALIZING ANALYSIS SNAPSHOT")
+    print("################################################################################\n\033[0m")
     
-    # --- Update analysis to COMPLETED ---
-    analysis.status = DriveAnalysisStatus.completed.value
-    analysis.completed_at = datetime.now(timezone.utc)
-    analysis.model_name = result.model_name
-    analysis.snapshot_id = snapshot.id
-    
-    meta = analysis.processing_metadata or {}
-    new_meta = {
-        **meta,
-        "token_usage": token_usage,
-        "estimated_cost": round(estimated_cost, 6),
-        **governance_dict,
-    }
-    analysis.processing_metadata = new_meta
-    
-    if drive.status == DriveStatus.analyzing:
-        drive.status = DriveStatus.ready
+    try:
+        token_usage = result.token_usage
+        estimated_cost = _estimate_cost(
+            token_usage.get("input_tokens", 0),
+            token_usage.get("output_tokens", 0),
+        )
+        governance_dict = result.governance_report.to_dict()
 
-    db.commit()
+        snapshot = DriveSnapshotModel(
+            id=uuid.uuid4(),
+            drive_id=analysis.drive_id,
+            source_id=analysis.source_id,
+            analysis_id=analysis.id,
+            snapshot_version=INTELLIGENCE_SCHEMA_VERSION,
+            analysis_version=ANALYSIS_VERSION,
+            prompt_version=result.prompt_version,
+            model_name=result.model_name,
+            intelligence_schema_version=INTELLIGENCE_SCHEMA_VERSION,
+            intelligence_payload=result.profile.to_snapshot_dict(),
+            metadata_payload={
+                "raw_llm_output_length": len(result.raw_llm_output),
+            },
+        )
+        db.add(snapshot)
+        db.flush()  # Force INSERT to avoid FK violation when updating drive_analyses
+        
+        # --- Update analysis to COMPLETED ---
+        analysis.status = DriveAnalysisStatus.completed.value
+        analysis.completed_at = datetime.now(timezone.utc)
+        analysis.model_name = result.model_name
+        analysis.snapshot_id = snapshot.id
+        
+        meta = analysis.processing_metadata or {}
+        new_meta = {
+            **meta,
+            "token_usage": token_usage,
+            "estimated_cost": round(estimated_cost, 6),
+            **governance_dict,
+        }
+        analysis.processing_metadata = new_meta
+        
+        if drive.status == DriveStatus.analyzing:
+            drive.status = DriveStatus.ready
 
-    logger.info(
-        "DriveAnalysis COMPLETED | analysis_id=%s snapshot_id=%s",
-        analysis.id,
-        snapshot.id,
+        db.commit()
+    except Exception as exc:
+        db.rollback()
+        print(f"\033[91mDriveAnalysis FAILED | Database Finalization Error | analysis_id={analysis_id}\nError: {exc}\033[0m")
+        logger.error("DriveAnalysis FAILED | Database Finalization Error | analysis_id=%s", analysis_id, exc_info=True)
+        
+        # Re-fetch models after rollback to update their failure states safely
+        analysis = db.query(DriveAnalysis).filter(DriveAnalysis.id == analysis_id).first()
+        drive = db.query(Drive).filter(Drive.id == analysis.drive_id).first()
+        
+        if analysis:
+            analysis.status = DriveAnalysisStatus.failed.value
+            analysis.failed_at = datetime.now(timezone.utc)
+            analysis.error_message = f"Database finalization error: {str(exc)}"
+            meta = analysis.processing_metadata or {}
+            analysis.processing_metadata = {**meta, "failure_reason": "DB_COMMIT_ERROR", "validation_stage": "finalization"}
+            
+        if drive and drive.status == DriveStatus.analyzing:
+            drive.status = DriveStatus.analysis_failed
+            
+        db.commit()
+        return analysis
+
+    t5 = time.perf_counter()
+
+    print("\033[96m\n################################################################################")
+    print("# STEP 5/5 COMPLETED ✓")
+    print("################################################################################\n\033[0m")
+
+    print(
+        "\033[96m\n################################################################################\n"
+        "# DRIVE ANALYSIS COMPLETED ✓\n"
+        "################################################################################\n\n"
+        f"Analysis ID : {analysis.id}\n"
+        f"Company     : {drive.company_name}\n"
+        f"Role        : {drive.role}\n\n"
+        f"Step 1 : {t1 - t0:.2f}s\n"
+        f"Step 2 : {t2 - t1:.2f}s\n"
+        f"Step 3 : {result.timing_stats['step3']:.2f}s\n"
+        f"Step 4 : {result.timing_stats['step4']:.2f}s\n"
+        f"Step 5 : {t5 - t4:.2f}s\n\n"
+        f"Total  : {t5 - t0:.2f}s\n\n"
+        "################################################################################\n\033[0m"
     )
+
     return analysis
 
 

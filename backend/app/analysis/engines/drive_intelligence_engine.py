@@ -56,6 +56,7 @@ from app.services.llm.exceptions import LLMError
 from app.services.llm.service import LLMService, get_llm_service
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 # Current engine version — bump on any logic change to this file
 ANALYSIS_VERSION: str = "4.4.0"
@@ -91,6 +92,7 @@ class DriveIntelligenceResult:
     analysis_version: str
     raw_llm_output: str
     token_usage: dict
+    timing_stats: dict[str, float]
 
 
 # ---------------------------------------------------------------------------
@@ -152,14 +154,12 @@ class DriveIntelligenceEngine:
             getattr(content, "statistics", None), dict
         ) else getattr(content, "character_count", 0)
 
-        logger.info(
-            "DriveIntelligenceEngine.analyze() start | company=%r role=%r "
-            "content_chars=%d prompt_version=%s",
-            company_name,
-            role,
-            char_count,
-            self._prompt_version,
-        )
+        import time
+        t0 = time.perf_counter()
+
+        print("\033[96m\n################################################################################")
+        print("# STEP 3/5 - GENERATING INFERENTIAL INTELLIGENCE")
+        print("################################################################################\n\033[0m")
 
         # Step 1: Resolve versioned prompt
         system_prompt, user_template = get_prompt(self._prompt_version)
@@ -188,6 +188,7 @@ class DriveIntelligenceEngine:
                 max_tokens=self._max_tokens,
             )
         except LLMError as exc:
+            print(f"\033[91mDriveIntelligenceEngine: LLM failed | error={exc}\033[0m")
             logger.error(
                 "DriveIntelligenceEngine: LLM failed | error=%s",
                 exc,
@@ -204,13 +205,27 @@ class DriveIntelligenceEngine:
             "total_tokens": completion.usage.total_tokens,
         }
 
+        t1 = time.perf_counter()
+        
         logger.info(
-            "LLM extraction complete | model=%s tokens_total=%d",
+            "Model          : %s\n"
+            "Tokens Total   : %d\n"
+            "Content Chars  : %d\n"
+            "Prompt Version : %s",
             model_name,
             token_usage["total_tokens"],
+            char_count,
+            self._prompt_version
         )
+        
+        print("\033[96m\n################################################################################")
+        print("# STEP 3/5 COMPLETED ✓")
+        print("################################################################################\n\033[0m")
 
         # Step 4: Governance Layer (validation + auto-correction + quality metrics)
+        print("\033[96m################################################################################")
+        print("# STEP 4/5 - EXECUTING GOVERNANCE LAYER")
+        print("################################################################################\n\033[0m")
         try:
             # First, semantic and evidence validation
             verify_consistency(raw_profile)
@@ -221,6 +236,7 @@ class DriveIntelligenceEngine:
                 raw_profile
             )
         except GovernanceValidationError:
+            print(f"\033[91mDriveIntelligenceEngine: Governance validation FAILED | technologies={len(raw_profile.technologies)} competencies={len(raw_profile.technical_competencies)} qualifications={len(raw_profile.qualifications)}\033[0m")
             logger.error(
                 "DriveIntelligenceEngine: Governance validation FAILED | "
                 "technologies=%d competencies=%d qualifications=%d",
@@ -230,13 +246,11 @@ class DriveIntelligenceEngine:
             )
             raise
 
-        logger.info(
-            "DriveIntelligenceEngine.analyze() complete | "
-            "quality_score=%.2f evidence_coverage=%.2f corrections=%d",
-            governance_report.quality_score,
-            governance_report.evidence_coverage,
-            governance_report.validation_warnings,
-        )
+        t2 = time.perf_counter()
+        
+        print("\033[96m\n################################################################################")
+        print("# STEP 4/5 COMPLETED ✓")
+        print("################################################################################\n\033[0m")
 
         return DriveIntelligenceResult(
             profile=corrected_profile,
@@ -246,4 +260,8 @@ class DriveIntelligenceEngine:
             analysis_version=ANALYSIS_VERSION,
             raw_llm_output=raw_llm_output,
             token_usage=token_usage,
+            timing_stats={
+                "step3": t1 - t0,
+                "step4": t2 - t1,
+            },
         )

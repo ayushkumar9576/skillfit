@@ -128,6 +128,12 @@ class ProjectAnalysisEngine:
         if not result.projects:
             return self._empty_result()
 
+        print("\033[96m\n" + "="*50)
+        print(f"🚀 DETECTED {len(result.projects)} PROJECTS FOR ANALYSIS")
+        for i, proj in enumerate(result.projects, 1):
+            print(f"   {i}. {getattr(proj, 'title', 'Unknown Project')}")
+        print("="*50 + "\n\033[0m")
+
         llm = self._get_llm_service()
         per_project = await asyncio.gather(
             *(self._analyze_one(index, project, llm, resume_id)

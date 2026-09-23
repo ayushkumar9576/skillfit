@@ -32,7 +32,7 @@ KNOWN_PROVIDERS: frozenset[str] = frozenset({"openai", "gemini"})
 # Defaults (used when the corresponding env var is unset).
 DEFAULT_PROVIDER: str = "openai"
 DEFAULT_MODEL: str = "gpt-4o-mini"
-DEFAULT_TIMEOUT: float = 30.0
+DEFAULT_TIMEOUT: float = 120.0
 DEFAULT_MAX_RETRIES: int = 3
 DEFAULT_RETRY_BASE_DELAY: float = 0.5
 DEFAULT_RETRY_MAX_DELAY: float = 8.0

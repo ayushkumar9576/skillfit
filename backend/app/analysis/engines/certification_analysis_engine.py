@@ -116,10 +116,12 @@ class CertificationAnalysisEngine:
             return result
 
         llm = self._get_llm_service()
-        logger.info(
-            "Certification analysis: %d certification(s) for resume %s.",
-            len(certifications), resume_id,
-        )
+        
+        print("\033[96m\n" + "="*50)
+        print(f"🚀 DETECTED {len(certifications)} CERTIFICATIONS FOR ANALYSIS")
+        for i, cert in enumerate(certifications, 1):
+            print(f"   {i}. {getattr(cert, 'certification_name', 'Unknown Certification')}")
+        print("="*50 + "\n\033[0m")
 
         batches = [
             certifications[i:i + BATCH_SIZE]
