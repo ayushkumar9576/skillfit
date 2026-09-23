@@ -1,5 +1,9 @@
+import logging
 from dotenv import load_dotenv
 load_dotenv()  # Must run before any module that reads os.getenv (security.py, database.py)
+
+# Configure global logging level to INFO so that logger.info statements are visible
+logging.basicConfig(level=logging.INFO)
 
 import app.db.base  # noqa: F401 — registers all ORM models with SQLAlchemy metadata
 

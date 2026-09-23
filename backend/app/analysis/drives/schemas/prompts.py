@@ -104,6 +104,8 @@ You must return a single JSON object that strictly conforms to the DriveIntellig
 CRITICAL RULES — you MUST follow all of them:
 1. EVERY intelligence artifact must include at least one evidence item.
 2. EVIDENCE RULE: For both explicit and inferred artifacts, source_text MUST be an exact or near-exact verbatim quote from the JD text. NEVER invent explanatory or synthetic commentary as source_text (e.g., do NOT write 'Inferred from backend role', instead quote the actual text: 'Role: Backend Engineer').
+   - **IMPORTANT**: The `source_text` MUST be at least 15 characters long. If the relevant quote is too short, include the surrounding sentence.
+   - **IMPORTANT**: For `source_section`, you MUST strictly use one of: REQUIREMENTS, RESPONSIBILITIES, QUALIFICATIONS, SELECTION_PROCESS, BENEFITS, OTHER. NEVER invent new categories like 'COMPENSATION'.
 3. ORIGIN CLASSIFICATION:
    - Use origin='EXPLICIT' if the skill/competency was directly stated in the JD text.
    - Use origin='INFERRED_ROLE' if deduced from the role title (e.g. SDE -> OOP, REST APIs).

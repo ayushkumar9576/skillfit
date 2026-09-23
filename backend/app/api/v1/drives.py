@@ -114,42 +114,23 @@ def drive_create_form_dep(
 
 @router.post("", response_model=DriveResponse, status_code=status.HTTP_201_CREATED)
 def create_drive(
-    background_tasks: BackgroundTasks,
-    data: DriveCreateRequest = Depends(drive_create_form_dep),
-    jd_text: Optional[str] = Form(None),
-    pdf_file: Optional[UploadFile] = File(None),
+    data: DriveCreateRequest,
     db: Session = Depends(get_db),
     _: User = Depends(require_roles(UserRole.admin)),
 ):
     """
-    Create a new Placement Drive via multipart/form-data.
+    Create a new Placement Drive via JSON.
 
-    Requires admin role. A JD (Text or PDF) is strictly required.
-    Triggers analysis automatically.
+    Requires admin role. A drive is created as a draft. JD upload and analysis 
+    will be triggered via separate endpoints.
     """
-    if not (jd_text or pdf_file) or (jd_text and pdf_file):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="A job description is required. Provide either JD text or a PDF."
-        )
-
     try:
-        drive, analysis = drive_service.create_drive_with_jd(
-            db=db,
-            data=data,
-            jd_text=jd_text,
-            pdf_file=pdf_file
-        )
-    except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        drive = drive_service.create_drive(db=db, data=data, commit=True)
     except drive_service.DuplicateDriveError as e:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
-
-    executor = AnalysisExecutor(background_tasks)
-    executor.submit_analysis(analysis.id)
 
     return drive
 
@@ -362,13 +343,7 @@ def upload_drive_pdf(
         drive_id, parsed.source_id, parsed.source_version, parsed.statistics.character_count,
     )
     
-    # Trigger analysis on JD Revision
-    analysis = drive_analysis_service.create_analysis_record(db, drive.id)
-    drive.status = DriveStatus.analyzing
-    db.commit()
 
-    executor = AnalysisExecutor(background_tasks)
-    executor.submit_analysis(analysis.id)
 
     return IngestionResponse(
         message="Job description PDF uploaded and parsed successfully.",
@@ -454,13 +429,7 @@ def submit_drive_text(
         drive_id, parsed.source_id, parsed.source_version, parsed.statistics.character_count,
     )
     
-    # Trigger analysis on JD Revision
-    analysis = drive_analysis_service.create_analysis_record(db, drive.id)
-    drive.status = DriveStatus.analyzing
-    db.commit()
 
-    executor = AnalysisExecutor(background_tasks)
-    executor.submit_analysis(analysis.id)
 
     return IngestionResponse(
         message="Job description text submitted and parsed successfully.",
@@ -665,6 +634,12 @@ async def analyze_drive(
         drive_id,
         prompt_version=body.prompt_version,
     )
+    
+    # Transition the drive to analyzing state
+    drive = drive_service.get_drive(db, drive_id)
+    if drive and drive.status in [DriveStatus.draft, DriveStatus.analysis_failed, DriveStatus.ready]:
+        drive.status = DriveStatus.analyzing
+        
     db.commit()
     db.refresh(analysis)
 
@@ -674,6 +649,35 @@ async def analyze_drive(
 
     # 3. Return 202 ACCEPTED immediately
     return AnalysisResponse.model_validate(analysis)
+
+
+@router.post(
+    "/{drive_id}/cancel-analysis",
+    status_code=status.HTTP_200_OK,
+    summary="Cancel Drive Intelligence Analysis",
+)
+def cancel_analysis(
+    drive_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+):
+    """
+    Cancel an ongoing drive intelligence analysis by marking the drive status as analysis_failed.
+    This allows the user to easily restart a stuck or unwanted analysis.
+    """
+    drive = drive_service.get_drive(db, drive_id)
+    if not drive:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Drive {drive_id} not found.",
+        )
+        
+    if drive.status == DriveStatus.analyzing:
+        drive.status = DriveStatus.analysis_failed
+        db.commit()
+        return {"message": "Analysis cancelled and marked as failed."}
+    
+    return {"message": "Drive is not currently analyzing."}
 
 
 @router.get(

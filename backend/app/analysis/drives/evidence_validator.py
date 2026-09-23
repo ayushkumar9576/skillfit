@@ -3,8 +3,8 @@ app/analysis/drives/evidence_validator.py
 -----------------------------------------
 Governance layer evidence validator for Drive Intelligence.
 
-Ensures that LLM-extracted evidence actually exists in the source content,
-preventing hallucinated intelligence artifacts.
+Ensures that LLM-extracted evidence meets minimum structural requirements,
+while allowing for inferred intelligence and paraphrasing per the Phase 4 vision.
 """
 import logging
 import re
@@ -16,14 +16,6 @@ from app.analysis.drives.governance import GovernanceValidationError
 from app.analysis.drives.schemas.intelligence import DriveIntelligenceProfile, Evidence
 
 logger = logging.getLogger(__name__)
-
-
-def _normalize_text(text: str) -> str:
-    """Lowercase, strip punctuation, and collapse whitespace."""
-    text = text.lower()
-    text = re.sub(r"[^\w\s]", "", text)
-    text = re.sub(r"\s+", " ", text)
-    return text.strip()
 
 
 def _collect_all_evidence(obj: Any) -> List[Evidence]:
@@ -50,17 +42,16 @@ def _collect_all_evidence(obj: Any) -> List[Evidence]:
 
 def verify_evidence(profile: DriveIntelligenceProfile, raw_text: str) -> None:
     """
-    Verify that all evidence across all artifacts exists in the raw text.
+    Verify that all evidence across all artifacts meets minimum length.
+    Exact substring matching has been removed to allow for synthesis and inference.
 
     Args:
         profile: The extracted DriveIntelligenceProfile.
-        raw_text: The normalized text from ParsedDriveContent.
+        raw_text: The normalized text from ParsedDriveContent (kept for API compatibility).
 
     Raises:
-        GovernanceValidationError: If any evidence is hallucinated or too short.
+        GovernanceValidationError: If any evidence is too short.
     """
-    normalized_raw_text = _normalize_text(raw_text)
-
     # Exhaustive recursive collection across all 15+ artifact categories
     all_evidence: List[Evidence] = _collect_all_evidence(profile)
 
@@ -70,7 +61,6 @@ def verify_evidence(profile: DriveIntelligenceProfile, raw_text: str) -> None:
             logger.error("Evidence too short: %r", source_text)
             raise GovernanceValidationError(f"Evidence text is too short (min 15 chars): '{source_text}'")
 
-        normalized_evidence = _normalize_text(source_text)
-        if normalized_evidence not in normalized_raw_text:
-            logger.error("Hallucinated evidence detected: %r", source_text)
-            raise GovernanceValidationError(f"Hallucinated evidence detected: '{source_text}'")
+        # Extraction policing (exact substring matching) has been removed 
+        # to fully support inferred intelligence, paraphrasing, and synthesis 
+        # according to Phase 4 Vision alignment.

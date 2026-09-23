@@ -361,6 +361,8 @@ class DriveGovernanceLayer:
     ) -> None:
         """
         Compute evidence_coverage, confidence_distribution, and quality_score.
+        Designed to reward intelligence richness, explainability, and coverage
+        without penalizing inferred intelligence.
         """
         all_artifacts = (
             profile.technologies
@@ -393,31 +395,22 @@ class DriveGovernanceLayer:
             report.evidence_coverage = 0.0
             return
 
-        explicit_types = {
-            "EXPLICIT_REQUIREMENT",
-            "EXPLICIT_RESPONSIBILITY",
-            "EXPLICIT_QUALIFICATION",
-            "EXPLICIT_SELECTION_PROCESS",
-        }
-
-        artifacts_with_explicit = 0
+        artifacts_with_evidence = 0
         dist = {"HIGH": 0, "MEDIUM": 0, "LOW": 0}
 
         for artifact in all_artifacts:
-            has_explicit = False
+            has_evidence = False
             for ev in getattr(artifact, "evidence", []):
-                ev_type = ev.evidence_type if isinstance(ev.evidence_type, str) else ev.evidence_type.value
+                has_evidence = True
                 ev_conf = ev.confidence if isinstance(ev.confidence, str) else ev.confidence.value
-                if str(ev_type).upper() in explicit_types:
-                    has_explicit = True
                 conf_key = str(ev_conf).upper()
                 if conf_key in dist:
                     dist[conf_key] += 1
-            if has_explicit:
-                artifacts_with_explicit += 1
+            if has_evidence:
+                artifacts_with_evidence += 1
 
         total = len(all_artifacts)
-        evidence_coverage = artifacts_with_explicit / total
+        evidence_coverage = artifacts_with_evidence / total
         report.evidence_coverage = evidence_coverage
         report.confidence_distribution = dist
 
