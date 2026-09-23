@@ -29,6 +29,7 @@ from datetime import datetime, timezone
 from enum import Enum
 from typing import List, Optional
 
+from app.core.enums import CanonicalCompetencyType, ProfessionalDomainType
 
 # ---------------------------------------------------------------------------
 # Taxonomy Enums
@@ -102,52 +103,23 @@ class FindingSeverity(str, Enum):
     CRITICAL = "CRITICAL"
 
 
-class CompetencyType(str, Enum):
-    """
-    Controlled vocabulary for competency classification.
-    Forces LLM output into a normalized form, preventing synonym drift
-    (e.g., "ML Engineering" vs "Machine Learning" vs "AI Development").
-    Enables reliable Phase 5 matching.
-    """
-    BACKEND_DEVELOPMENT = "BACKEND_DEVELOPMENT"
-    FRONTEND_DEVELOPMENT = "FRONTEND_DEVELOPMENT"
-    FULL_STACK_DEVELOPMENT = "FULL_STACK_DEVELOPMENT"
-    MACHINE_LEARNING = "MACHINE_LEARNING"
-    DEEP_LEARNING = "DEEP_LEARNING"
-    DATA_SCIENCE = "DATA_SCIENCE"
-    DATA_ENGINEERING = "DATA_ENGINEERING"
-    DEVOPS = "DEVOPS"
-    CLOUD_COMPUTING = "CLOUD_COMPUTING"
-    MLOPS = "MLOPS"
-    SYSTEM_DESIGN = "SYSTEM_DESIGN"
-    SOFTWARE_ARCHITECTURE = "SOFTWARE_ARCHITECTURE"
-    DATABASE_DESIGN = "DATABASE_DESIGN"
-    API_DEVELOPMENT = "API_DEVELOPMENT"
-    TESTING = "TESTING"
-    QA_AUTOMATION = "QA_AUTOMATION"
-    CYBERSECURITY = "CYBERSECURITY"
-    MOBILE_DEVELOPMENT = "MOBILE_DEVELOPMENT"
-    DISTRIBUTED_SYSTEMS = "DISTRIBUTED_SYSTEMS"
-    PROBLEM_SOLVING = "PROBLEM_SOLVING"
+# ---------------------------------------------------------------------------
+# Canonical Competency and Domain Taxonomy
+#
+# Both enums now live in app.core.enums and are shared across Candidate and
+# Drive intelligence. Aliases below preserve backward compatibility for all
+# engine code that imports CompetencyType / DomainType from this module.
+# ---------------------------------------------------------------------------
 
+# Canonical competency taxonomy (source of truth: app.core.enums)
+CompetencyType = CanonicalCompetencyType
 
-class DomainType(str, Enum):
-    """
-    Controlled vocabulary for high-level domain classification.
-    Used in DomainIntelligence to prevent string drift in domain names.
-    """
-    MACHINE_LEARNING = "MACHINE_LEARNING"
-    BACKEND = "BACKEND"
-    FRONTEND = "FRONTEND"
-    CLOUD = "CLOUD"
-    DEVOPS = "DEVOPS"
-    DATA_ENGINEERING = "DATA_ENGINEERING"
-    SECURITY = "SECURITY"
-    MOBILE = "MOBILE"
-    FULL_STACK = "FULL_STACK"
-    DATA_SCIENCE = "DATA_SCIENCE"
-    MLOPS = "MLOPS"
-    DISTRIBUTED_SYSTEMS = "DISTRIBUTED_SYSTEMS"
+# Canonical domain taxonomy (source of truth: app.core.enums)
+# Note: ProfessionalDomainType now includes both high-level business domains
+# (AI_ML, SOFTWARE_ENGINEERING) and fine-grained technical domains (BACKEND,
+# MACHINE_LEARNING) in a single unified taxonomy.
+DomainType = ProfessionalDomainType
+
 
 
 class EngineeringSignalCategory(str, Enum):

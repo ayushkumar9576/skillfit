@@ -214,20 +214,42 @@ class TechnologyCategory(str, enum.Enum):
 
 class ProfessionalDomainType(str, enum.Enum):
     """
-    Taxonomy for overarching role business domains.
+    Canonical shared domain taxonomy — used by both Candidate Intelligence
+    (Phase 3) and Drive Intelligence (Phase 4).
 
-    Separates the role identity (e.g. Data Scientist) from its hard skills (e.g. Python, SQL).
+    Phase 4.1 originally defined high-level business domains only.
+    Taxonomy Sprint (Phase 4.5) expanded this to include fine-grained technical
+    domains from the Candidate side, enabling direct Phase 5 matching.
+
+    Rule: All new domain values must be added here — never in module-local enums.
+    Member names use UPPER_CASE to match Candidate Intelligence convention.
     """
-    software_engineering = "SOFTWARE_ENGINEERING"
-    data                 = "DATA"
-    ai_ml                = "AI_ML"
-    security             = "SECURITY"
-    product              = "PRODUCT"
-    research             = "RESEARCH"
-    consulting           = "CONSULTING"
-    qa_testing           = "QA_TESTING"
-    hardware_engineering = "HARDWARE_ENGINEERING"
-    other                = "OTHER"
+    # --- High-level business domains (Drive Intelligence, Phase 4) ---
+    SOFTWARE_ENGINEERING = "SOFTWARE_ENGINEERING"
+    DATA                 = "DATA"
+    AI_ML                = "AI_ML"
+    PRODUCT              = "PRODUCT"
+    RESEARCH             = "RESEARCH"
+    CONSULTING           = "CONSULTING"
+    QA_TESTING           = "QA_TESTING"
+    HARDWARE_ENGINEERING = "HARDWARE_ENGINEERING"
+    OTHER                = "OTHER"
+
+    # --- Fine-grained technical domains (Candidate Intelligence, Phase 3) ---
+    MACHINE_LEARNING     = "MACHINE_LEARNING"
+    DEEP_LEARNING        = "DEEP_LEARNING"
+    BACKEND              = "BACKEND"
+    FRONTEND             = "FRONTEND"
+    FULL_STACK           = "FULL_STACK"
+    CLOUD                = "CLOUD"
+    DEVOPS               = "DEVOPS"
+    DATA_ENGINEERING     = "DATA_ENGINEERING"
+    DATA_SCIENCE         = "DATA_SCIENCE"
+    SECURITY             = "SECURITY"
+    MOBILE               = "MOBILE"
+    MLOPS                = "MLOPS"
+    DISTRIBUTED_SYSTEMS  = "DISTRIBUTED_SYSTEMS"
+
 
 
 class ImportanceLevel(str, enum.Enum):
@@ -297,24 +319,51 @@ class EvidenceSection(str, enum.Enum):
     other            = "OTHER"
 
 
-class TechnicalCompetencyType(str, enum.Enum):
+class CanonicalCompetencyType(str, enum.Enum):
     """
-    Taxonomy for technical/hard-skill competencies expected by the drive.
+    Canonical shared competency taxonomy — used by both Candidate Intelligence
+    (Phase 3) and Drive Intelligence (Phase 4).
 
-    Separated from behavioral competencies to enable differentiated Phase 5
-    matching. A candidate failing a SYSTEM_DESIGN screen is penalized
-    differently than lacking COMMUNICATION signals.
+    Phase 4.3 originally defined TechnicalCompetencyType with 10 values.
+    Taxonomy Sprint (Phase 4.5) merged it with the Candidate side's CompetencyType
+    (20 values) into this single authoritative enum. All original string values
+    are preserved — no serialized snapshot data is broken.
+
+    Rule: All new competency values must be added here — never in module-local enums.
+    Member names use UPPER_CASE to match Candidate Intelligence convention.
     """
-    backend_development  = "BACKEND_DEVELOPMENT"
-    frontend_development = "FRONTEND_DEVELOPMENT"
-    system_design        = "SYSTEM_DESIGN"
-    cloud_engineering    = "CLOUD_ENGINEERING"
-    data_engineering     = "DATA_ENGINEERING"
-    problem_solving      = "PROBLEM_SOLVING"
-    machine_learning     = "MACHINE_LEARNING"
-    devops               = "DEVOPS"
-    mobile_development   = "MOBILE_DEVELOPMENT"
-    security_engineering = "SECURITY_ENGINEERING"
+    # --- Core engineering competencies (present on both Candidate and Drive sides) ---
+    BACKEND_DEVELOPMENT   = "BACKEND_DEVELOPMENT"
+    FRONTEND_DEVELOPMENT  = "FRONTEND_DEVELOPMENT"
+    FULL_STACK_DEVELOPMENT = "FULL_STACK_DEVELOPMENT"
+    SYSTEM_DESIGN         = "SYSTEM_DESIGN"
+    DATA_ENGINEERING      = "DATA_ENGINEERING"
+    PROBLEM_SOLVING       = "PROBLEM_SOLVING"
+    MACHINE_LEARNING      = "MACHINE_LEARNING"
+    DEVOPS                = "DEVOPS"
+    MOBILE_DEVELOPMENT    = "MOBILE_DEVELOPMENT"
+    SECURITY_ENGINEERING  = "SECURITY_ENGINEERING"
+
+    # --- Extended competencies (Candidate Intelligence, Phase 3) ---
+    DEEP_LEARNING         = "DEEP_LEARNING"
+    DATA_SCIENCE          = "DATA_SCIENCE"
+    CLOUD_COMPUTING       = "CLOUD_COMPUTING"
+    MLOPS                 = "MLOPS"
+    SOFTWARE_ARCHITECTURE = "SOFTWARE_ARCHITECTURE"
+    DATABASE_DESIGN       = "DATABASE_DESIGN"
+    API_DEVELOPMENT       = "API_DEVELOPMENT"
+    TESTING               = "TESTING"
+    QA_AUTOMATION         = "QA_AUTOMATION"
+    CYBERSECURITY         = "CYBERSECURITY"
+    DISTRIBUTED_SYSTEMS   = "DISTRIBUTED_SYSTEMS"
+
+    # --- Drive-side value preserved for backward compat with existing snapshots ---
+    CLOUD_ENGINEERING     = "CLOUD_ENGINEERING"
+
+
+# Backward-compatible alias — Drive Intelligence code that imported TechnicalCompetencyType
+# by name continues to work without modification.
+TechnicalCompetencyType = CanonicalCompetencyType
 
 
 class BehavioralCompetencyType(str, enum.Enum):

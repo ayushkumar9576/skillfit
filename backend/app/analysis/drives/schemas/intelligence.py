@@ -32,6 +32,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.core.enums import (
     BehavioralCompetencyType,
+    CanonicalCompetencyType,
     DriveConfidenceLevel,
     DriveDifficultyLevel,
     EvidenceSection,
@@ -49,7 +50,7 @@ from app.core.enums import (
     ShiftType,
     SuccessIndicatorStrength,
     SuccessIndicatorType,
-    TechnicalCompetencyType,
+    TechnicalCompetencyType,  # backward-compat alias for CanonicalCompetencyType
     TechnologyCategory,
     WorkMode,
 )
@@ -193,10 +194,14 @@ class TechnicalCompetencyIntelligence(BaseModel):
     Separated from behavioral competencies so Phase 5 can apply different
     matching algorithms: technical gaps are penalized at the eligibility
     layer; behavioral gaps are penalized at the ranking layer.
+
+    Uses CanonicalCompetencyType — the shared taxonomy that also governs
+    CandidateIntelligenceProfile.competencies (Phase 3), enabling direct
+    Phase 5 matching without translation.
     """
 
-    competency: TechnicalCompetencyType = Field(
-        ..., description="Technical competency type from the taxonomy."
+    competency: CanonicalCompetencyType = Field(
+        ..., description="Technical competency type from the canonical shared taxonomy."
     )
     importance: ImportanceLevel = Field(
         ..., description="How critical this competency is."
