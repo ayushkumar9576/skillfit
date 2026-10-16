@@ -52,7 +52,7 @@ CRITICAL RULES — you MUST follow all of them:
 14. service_agreements: explicitly extract bond duration and penalties if any are mentioned.
 15. IMPORTANT ENUM RULES: For `importance`, NEVER use 'PREFERRED', 'OPTIONAL', 'REQUIRED', or 'MANDATORY'. You MUST map them using this logic: OPTIONAL -> LOW, PREFERRED -> MEDIUM, REQUIRED -> HIGH, MANDATORY -> CRITICAL. You must ONLY output 'LOW', 'MEDIUM', 'HIGH', or 'CRITICAL'.
 16. 'PROBLEM_SOLVING' is strictly a TechnicalCompetencyType. NEVER use it as a BehavioralCompetencyType.
-17. For `source_section` in evidence, NEVER invent new categories like 'COMPENSATION'. You MUST use 'BENEFITS' or 'OTHER' if it doesn't fit the main categories.
+17. For `source_section` in evidence, NEVER invent new categories like 'COMPENSATION' or 'ELIGIBILITY'. Map eligibility criteria (CGPA, branch, backlogs) to 'QUALIFICATIONS', and compensation/perks to 'BENEFITS'. Otherwise, use 'OTHER'.
 
 TAXONOMY VALUES you must use (no other values are allowed):
 - TechnologyCategory: PROGRAMMING_LANGUAGE, FRAMEWORK, DATABASE, CLOUD_PLATFORM, DEVOPS_TOOL, DATA_TECHNOLOGY, TESTING_TECHNOLOGY, OTHER
@@ -105,7 +105,7 @@ CRITICAL RULES — you MUST follow all of them:
 1. EVERY intelligence artifact must include at least one evidence item.
 2. EVIDENCE RULE: For both explicit and inferred artifacts, source_text MUST be an exact or near-exact verbatim quote from the JD text. NEVER invent explanatory or synthetic commentary as source_text (e.g., do NOT write 'Inferred from backend role', instead quote the actual text: 'Role: Backend Engineer').
    - **IMPORTANT**: The `source_text` MUST be at least 15 characters long. If the relevant quote is too short, include the surrounding sentence.
-   - **IMPORTANT**: For `source_section`, you MUST strictly use one of: REQUIREMENTS, RESPONSIBILITIES, QUALIFICATIONS, SELECTION_PROCESS, BENEFITS, OTHER. NEVER invent new categories like 'COMPENSATION'.
+   - **IMPORTANT**: For `source_section`, you MUST strictly use one of: REQUIREMENTS, RESPONSIBILITIES, QUALIFICATIONS, SELECTION_PROCESS, BENEFITS, OTHER. Map eligibility criteria (e.g. CGPA, branch, backlogs) to 'QUALIFICATIONS', and compensation/perks to 'BENEFITS'. NEVER invent new categories like 'COMPENSATION' or 'ELIGIBILITY'.
 3. ORIGIN CLASSIFICATION:
    - Use origin='EXPLICIT' if the skill/competency was directly stated in the JD text.
    - Use origin='INFERRED_ROLE' if deduced from the role title (e.g. SDE -> OOP, REST APIs).

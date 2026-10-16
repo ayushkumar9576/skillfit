@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 "use client";
 
 import React, { useEffect, useState } from "react";
@@ -5,6 +6,7 @@ import { useParams, useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import { DriveStatusType } from "@/components/drives/DriveCard";
 import IntelligenceReview from "@/components/drives/IntelligenceReview";
+import RecommendedCandidates from "@/components/dashboard/RecommendedCandidates";
 import { 
   Building2, 
   Briefcase, 
@@ -19,7 +21,9 @@ import {
   CheckCircle,
   Clock,
   Globe,
-  XCircle
+  XCircle,
+  Sparkles,
+  Users
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -32,6 +36,7 @@ export default function DriveWorkspacePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isActioning, setIsActioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<"analysis" | "candidates">("analysis");
 
   const loadData = async () => {
     setIsLoading(true);
@@ -290,58 +295,132 @@ export default function DriveWorkspacePage() {
         </div>
       </div>
 
-      {/* Action Area (Lifecycle dependent) */}
-      {renderActionArea()}
+      {/* Navigation Tabs */}
+      <div className="flex border-b border-slate-200 gap-2">
+        <button
+          type="button"
+          onClick={() => setActiveTab("analysis")}
+          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === "analysis"
+              ? "border-indigo-600 text-indigo-600 bg-white rounded-t-lg"
+              : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+          }`}
+        >
+          <Sparkles className="w-4 h-4" />
+          Drive Analysis & Intelligence
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("candidates")}
+          className={`flex items-center gap-2 px-5 py-3 text-sm font-semibold border-b-2 transition-colors ${
+            activeTab === "candidates"
+              ? "border-indigo-600 text-indigo-600 bg-white rounded-t-lg"
+              : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+          }`}
+        >
+          <Users className="w-4 h-4" />
+          Recommended Candidates
+          {(status === "ready" || status === "published") && (
+            <span className="ml-1 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+              AI Matched
+            </span>
+          )}
+        </button>
+      </div>
 
-      {/* Metadata Section */}
-      <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6">
-        <h2 className="text-xl font-bold text-slate-900 border-b border-slate-100 pb-4">Drive Metadata</h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="space-y-6">
-            <div>
-              <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-1.5">
-                <IndianRupee className="w-4 h-4" /> Package
-              </h4>
-              <p className="text-slate-900 font-medium">{drive.package || "Not specified"}</p>
+      {/* Tab 1: Drive Analysis & Intelligence View */}
+      {activeTab === "analysis" && (
+        <div className="space-y-8">
+          {/* Action Area (Lifecycle dependent) */}
+          {renderActionArea()}
+
+          {/* Metadata Section */}
+          <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm space-y-6">
+            <h2 className="text-xl font-bold text-slate-900 border-b border-slate-100 pb-4">Drive Metadata</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-1.5">
+                    <IndianRupee className="w-4 h-4" /> Package
+                  </h4>
+                  <p className="text-slate-900 font-medium">{drive.package || "Not specified"}</p>
+                </div>
+                
+                <div>
+                  <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-1.5">
+                    <MapPin className="w-4 h-4" /> Location
+                  </h4>
+                  <p className="text-slate-900 font-medium">{drive.location || "Not specified"}</p>
+                </div>
+
+                <div>
+                  <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-1.5">
+                    <Calendar className="w-4 h-4" /> Application Deadline
+                  </h4>
+                  <p className="text-slate-900 font-medium">
+                    {drive.application_deadline ? format(new Date(drive.application_deadline), "MMM d, yyyy") : "Not specified"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-6">
+                <div>
+                  <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-1.5">
+                    <FileText className="w-4 h-4" /> Eligibility Criteria
+                  </h4>
+                  <p className="text-slate-900">{drive.eligibility_criteria || "Not specified"}</p>
+                </div>
+              </div>
             </div>
             
-            <div>
-              <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-1.5">
-                <MapPin className="w-4 h-4" /> Location
-              </h4>
-              <p className="text-slate-900 font-medium">{drive.location || "Not specified"}</p>
-            </div>
-
-            <div>
-              <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-1.5">
-                <Calendar className="w-4 h-4" /> Application Deadline
-              </h4>
-              <p className="text-slate-900 font-medium">
-                {drive.application_deadline ? format(new Date(drive.application_deadline), "MMM d, yyyy") : "Not specified"}
-              </p>
-            </div>
-          </div>
-
-          <div className="space-y-6">
-            <div>
-              <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-1.5">
-                <FileText className="w-4 h-4" /> Eligibility Criteria
-              </h4>
-              <p className="text-slate-900">{drive.eligibility_criteria || "Not specified"}</p>
-            </div>
+            {drive.description && (
+              <div className="pt-6 border-t border-slate-100">
+                <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-2">
+                  <FileText className="w-4 h-4" /> Description
+                </h4>
+                <div className="text-slate-700 whitespace-pre-wrap">{drive.description}</div>
+              </div>
+            )}
           </div>
         </div>
-        
-        {drive.description && (
-          <div className="pt-6 border-t border-slate-100">
-            <h4 className="text-sm font-medium text-slate-500 flex items-center gap-2 mb-2">
-              <FileText className="w-4 h-4" /> Description
-            </h4>
-            <div className="text-slate-700 whitespace-pre-wrap">{drive.description}</div>
+      )}
+
+      {/* Tab 2: Recommended Candidates View */}
+      {activeTab === "candidates" && (
+        <div className="space-y-6">
+          <div className="bg-white p-6 md:p-8 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex flex-col md:flex-row md:items-center justify-between border-b border-slate-100 pb-4 gap-4">
+              <div>
+                <h2 className="text-xl font-bold text-slate-900 flex items-center gap-2">
+                  <Users className="w-5 h-5 text-indigo-600" />
+                  Recommended Candidates for {drive.company_name}
+                </h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Students evaluated and ranked by the Placement Matching Engine based on structured candidate and drive intelligence.
+                </p>
+              </div>
+              <span className="text-xs font-semibold uppercase tracking-wider text-emerald-600 bg-emerald-50 px-2.5 py-1 rounded-full border border-emerald-200 self-start md:self-auto">
+                AI Matched Candidates
+              </span>
+            </div>
+
+            {status === "ready" || status === "published" ? (
+              <RecommendedCandidates driveId={id} />
+            ) : (
+              <div className="text-center py-16 text-slate-500">
+                <div className="w-12 h-12 rounded-full bg-slate-100 flex items-center justify-center mx-auto mb-3">
+                  <Users className="w-6 h-6 text-slate-400" />
+                </div>
+                <h3 className="text-md font-semibold text-slate-800">Matching Pending Analysis Completion</h3>
+                <p className="text-sm text-slate-500 mt-1 max-w-md mx-auto">
+                  Candidate matching will automatically execute once the drive intelligence analysis has completed and the profile is approved.
+                </p>
+              </div>
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

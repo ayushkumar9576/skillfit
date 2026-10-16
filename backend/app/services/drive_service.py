@@ -148,6 +148,10 @@ def get_drive(db: Session, drive_id: uuid.UUID) -> Optional[Drive]:
     return db.query(Drive).filter(Drive.id == drive_id).first()
 
 
+# Alias for backwards compatibility
+get_drive_by_id = get_drive
+
+
 def list_drives(
     db: Session,
     status: Optional[DriveStatus] = None,

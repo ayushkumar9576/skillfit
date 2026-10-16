@@ -26,7 +26,7 @@ Schema versioning:
 
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -101,6 +101,45 @@ class Evidence(BaseModel):
         description="JD section where this evidence was found.",
     )
 
+    @field_validator("source_section", mode="before")
+    @classmethod
+    def normalize_source_section(cls, v: Any) -> Any:
+        if isinstance(v, EvidenceSection):
+            return v
+        if isinstance(v, str):
+            val = v.strip().upper()
+            mapping = {
+                "ELIGIBILITY": EvidenceSection.qualifications,
+                "ELIGIBILITY_CRITERIA": EvidenceSection.qualifications,
+                "ACADEMIC_CRITERIA": EvidenceSection.qualifications,
+                "ACADEMICS": EvidenceSection.qualifications,
+                "REQUIREMENT": EvidenceSection.requirements,
+                "REQUIREMENTS": EvidenceSection.requirements,
+                "RESPONSIBILITY": EvidenceSection.responsibilities,
+                "RESPONSIBILITIES": EvidenceSection.responsibilities,
+                "QUALIFICATION": EvidenceSection.qualifications,
+                "QUALIFICATIONS": EvidenceSection.qualifications,
+                "SELECTION": EvidenceSection.selection_process,
+                "SELECTION_PROCESS": EvidenceSection.selection_process,
+                "HIRING_PROCESS": EvidenceSection.selection_process,
+                "INTERVIEW_PROCESS": EvidenceSection.selection_process,
+                "INTERVIEW": EvidenceSection.selection_process,
+                "ASSESSMENT": EvidenceSection.selection_process,
+                "BENEFIT": EvidenceSection.benefits,
+                "BENEFITS": EvidenceSection.benefits,
+                "COMPENSATION": EvidenceSection.benefits,
+                "SALARY": EvidenceSection.benefits,
+                "PERKS": EvidenceSection.benefits,
+                "OTHER": EvidenceSection.other,
+            }
+            if val in mapping:
+                return mapping[val]
+            for member in EvidenceSection:
+                if member.value == val or member.name.upper() == val:
+                    return member
+            return EvidenceSection.other
+        return v
+
     model_config = {"use_enum_values": True}
 
 
@@ -144,7 +183,20 @@ class TechnologyIntelligence(BaseModel):
         ..., min_length=1, description="Evidence supporting this technology requirement."
     )
 
-    model_config = {"use_enum_values": True}
+    @field_validator("category", mode="before")
+    @classmethod
+    def normalize_category(cls, v: Any) -> Any:
+        if isinstance(v, TechnologyCategory):
+            return v
+        if isinstance(v, str):
+            val = v.strip().upper()
+            for member in TechnologyCategory:
+                if member.value == val or member.name.upper() == val:
+                    return member
+            return TechnologyCategory.other
+        return v
+
+    model_config = {"use_enum_values": True, "extra": "ignore"}
 
 
 # ===========================================================================
@@ -179,7 +231,35 @@ class ProfessionalDomainIntelligence(BaseModel):
         ..., min_length=1, description="Evidence supporting this domain."
     )
 
-    model_config = {"use_enum_values": True}
+    @field_validator("domain", mode="before")
+    @classmethod
+    def normalize_domain(cls, v: Any) -> Any:
+        if isinstance(v, ProfessionalDomainType):
+            return v
+        if isinstance(v, str):
+            val = v.strip().upper()
+            for member in ProfessionalDomainType:
+                if member.value == val or member.name.upper() == val:
+                    return member
+            return ProfessionalDomainType.OTHER
+        return v
+
+    @field_validator("industry", mode="before")
+    @classmethod
+    def normalize_industry(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, IndustryVertical):
+            return v
+        if isinstance(v, str):
+            val = v.strip().upper()
+            for member in IndustryVertical:
+                if member.value == val or member.name.upper() == val:
+                    return member
+            return IndustryVertical.other
+        return v
+
+    model_config = {"use_enum_values": True, "extra": "ignore"}
 
 
 # ===========================================================================
@@ -775,7 +855,25 @@ class DriveIntelligenceProfile(BaseModel):
         ),
     )
 
-    model_config = {"use_enum_values": True}
+    others: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Captures any unexpected/unstructured fields returned by the LLM so the analysis never fails.",
+    )
+
+    model_config = {"use_enum_values": True, "extra": "ignore"}
+
+    @model_validator(mode="before")
+    @classmethod
+    def capture_unknown_fields_into_others(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            known_fields = set(cls.model_fields.keys())
+            extra_keys = [k for k in list(data.keys()) if k not in known_fields and k != "others"]
+            if extra_keys:
+                others = dict(data.get("others") or {})
+                for k in extra_keys:
+                    others[k] = data.pop(k)
+                data["others"] = others
+        return data
 
     @model_validator(mode="after")
     def _validate_minimum_intelligence(self) -> "DriveIntelligenceProfile":

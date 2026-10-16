@@ -268,12 +268,88 @@ def validate_response(raw_text: Optional[str], schema: Type[TSchema]) -> TSchema
                         "PREFERRED": "MEDIUM",
                         "OPTIONAL": "LOW",
                         "REQUIRED": "HIGH",
-                        "MANDATORY": "CRITICAL"
+                        "MANDATORY": "CRITICAL",
                     }
-                    val = obj["importance"].upper()
+                    val = obj["importance"].strip().upper()
                     if val in mapping:
                         obj["importance"] = mapping[val]
-                
+
+                # 2. Normalize 'source_section' mapping
+                if "source_section" in obj and isinstance(obj["source_section"], str):
+                    section_mapping = {
+                        "ELIGIBILITY": "QUALIFICATIONS",
+                        "ELIGIBILITY_CRITERIA": "QUALIFICATIONS",
+                        "ACADEMIC_CRITERIA": "QUALIFICATIONS",
+                        "ACADEMICS": "QUALIFICATIONS",
+                        "REQUIREMENT": "REQUIREMENTS",
+                        "REQUIREMENTS": "REQUIREMENTS",
+                        "RESPONSIBILITY": "RESPONSIBILITIES",
+                        "RESPONSIBILITIES": "RESPONSIBILITIES",
+                        "QUALIFICATION": "QUALIFICATIONS",
+                        "QUALIFICATIONS": "QUALIFICATIONS",
+                        "SELECTION": "SELECTION_PROCESS",
+                        "SELECTION_PROCESS": "SELECTION_PROCESS",
+                        "HIRING_PROCESS": "SELECTION_PROCESS",
+                        "INTERVIEW_PROCESS": "SELECTION_PROCESS",
+                        "INTERVIEW": "SELECTION_PROCESS",
+                        "ASSESSMENT": "SELECTION_PROCESS",
+                        "BENEFIT": "BENEFITS",
+                        "BENEFITS": "BENEFITS",
+                        "COMPENSATION": "BENEFITS",
+                        "SALARY": "BENEFITS",
+                        "PERKS": "BENEFITS",
+                        "OTHER": "OTHER",
+                    }
+                    val = obj["source_section"].strip().upper()
+                    if val in section_mapping:
+                        obj["source_section"] = section_mapping[val]
+                    elif val not in {"REQUIREMENTS", "RESPONSIBILITIES", "QUALIFICATIONS", "SELECTION_PROCESS", "BENEFITS", "OTHER"}:
+                        obj["source_section"] = "OTHER"
+                    else:
+                        obj["source_section"] = val
+
+                # 3. Normalize 'category' in technology items
+                if "category" in obj and isinstance(obj["category"], str):
+                    allowed_tech_cats = {
+                        "PROGRAMMING_LANGUAGE", "FRAMEWORK", "DATABASE",
+                        "CLOUD_PLATFORM", "DEVOPS_TOOL", "DATA_TECHNOLOGY",
+                        "TESTING_TECHNOLOGY", "OTHER",
+                    }
+                    val = obj["category"].strip().upper()
+                    if val in allowed_tech_cats:
+                        obj["category"] = val
+                    elif "name" in obj:
+                        obj["category"] = "OTHER"
+
+                # 4. Normalize 'domain'
+                if "domain" in obj and isinstance(obj["domain"], str):
+                    allowed_domains = {
+                        "SOFTWARE_ENGINEERING", "DATA", "AI_ML", "PRODUCT",
+                        "RESEARCH", "CONSULTING", "QA_TESTING", "HARDWARE_ENGINEERING",
+                        "MACHINE_LEARNING", "DEEP_LEARNING", "BACKEND", "FRONTEND",
+                        "FULL_STACK", "CLOUD", "DEVOPS", "DATA_ENGINEERING",
+                        "DATA_SCIENCE", "SECURITY", "MOBILE", "MLOPS",
+                        "DISTRIBUTED_SYSTEMS", "OTHER",
+                    }
+                    val = obj["domain"].strip().upper()
+                    if val in allowed_domains:
+                        obj["domain"] = val
+                    elif "subdomains" in obj or "role_family" in obj:
+                        obj["domain"] = "OTHER"
+
+                # 5. Normalize 'industry'
+                if "industry" in obj and isinstance(obj["industry"], str):
+                    allowed_industries = {
+                        "FINTECH", "EDTECH", "HEALTHCARE", "E_COMMERCE",
+                        "ENTERPRISE_SAAS", "AUTOMOTIVE", "CONSULTING",
+                        "GAMING", "CYBERSECURITY", "OTHER",
+                    }
+                    val = obj["industry"].strip().upper()
+                    if val in allowed_industries:
+                        obj["industry"] = val
+                    else:
+                        obj["industry"] = "OTHER"
+
                 # Recursively normalize nested objects/lists
                 for value in obj.values():
                     _normalize_llm_json(value)
@@ -284,6 +360,15 @@ def validate_response(raw_text: Optional[str], schema: Type[TSchema]) -> TSchema
         _normalize_llm_json(data)
         
         if schema.__name__ == "DriveIntelligenceProfile":
+            if isinstance(data, dict):
+                known_fields = set(schema.model_fields.keys())
+                extra_keys = [k for k in list(data.keys()) if k not in known_fields and k != "others"]
+                if extra_keys:
+                    others = dict(data.get("others") or {})
+                    for k in extra_keys:
+                        others[k] = data.pop(k)
+                    data["others"] = others
+
             print("================================================================================")
             print("RAW DRIVE INTELLIGENCE RESPONSE")
             print("===============================")
