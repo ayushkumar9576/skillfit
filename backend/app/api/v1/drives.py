@@ -810,3 +810,96 @@ def get_snapshot(
             detail=f"Snapshot {snapshot_id} not found for drive {drive_id}.",
         )
     return SnapshotDetailResponse.model_validate(snapshot)
+
+# --- Phase 5.3C Recommendation Endpoint ---
+
+from app.schemas.matching import RecommendedCandidateResponse
+from app.matching.services.recommendation_service import RecommendationService
+from app.models.resume_file import ResumeFile
+from app.models.student import Student
+from app.models.user import User as UserModel
+
+@router.get(
+    "/{drive_id}/recommended-candidates",
+    response_model=List[RecommendedCandidateResponse],
+    summary="Get Recommended Candidates",
+)
+def get_drive_recommended_candidates(
+    drive_id: UUID,
+    db: Session = Depends(get_db),
+    _: UserModel = Depends(require_roles(UserRole.admin, UserRole.faculty)),
+):
+    """
+    Retrieve ranked candidate recommendations for a specific Placement Drive.
+    Auth: admin, faculty.
+    """
+    # 1. Validate drive exists
+    drive = drive_service.get_drive(db, drive_id)
+    if not drive:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Drive {drive_id} not found.",
+        )
+        
+    # 2. Fetch recommendations
+    try:
+        match_results = RecommendationService.get_recommended_candidates(db, str(drive_id))
+    except ValueError:
+        return []
+        
+    if not match_results:
+        return []
+        
+    # 3. Hydrate DTOs (Batch load resumes -> students)
+    resume_ids = [UUID(res.candidate_id) for res in match_results]
+    
+    # We join ResumeFile -> Student to get the name
+    resumes = db.query(ResumeFile, Student).join(Student, ResumeFile.student_id == Student.id).filter(ResumeFile.id.in_(resume_ids)).all()
+    
+    resume_map = {r[0].id: r for r in resumes}
+    
+    response = []
+    for res in match_results:
+        r_id = UUID(res.candidate_id)
+        if r_id not in resume_map:
+            continue
+            
+        resume_model, student_model = resume_map[r_id]
+        
+        # User model join isn't strictly necessary if Student model has the name,
+        # but let's check what student_model has.
+        # Actually, Student has user_id, User has full_name.
+        # Let's batch load users as well.
+        pass
+        
+    # We need full names. Let's do a better batch query.
+    resumes_with_names = (
+        db.query(ResumeFile.id, UserModel.full_name)
+        .join(Student, ResumeFile.student_id == Student.id)
+        .join(UserModel, Student.user_id == UserModel.id)
+        .filter(ResumeFile.id.in_(resume_ids))
+        .all()
+    )
+    name_map = {r[0]: r[1] for r in resumes_with_names}
+    
+    for res in match_results:
+        r_id = UUID(res.candidate_id)
+        if r_id not in name_map:
+            continue
+            
+        top_strengths = [s.title.replace("Strong ", "") for s in res.explanation.strengths[:3]]
+        top_gaps = [g.title.replace("Missing ", "") for g in res.explanation.gaps[:3]]
+            
+        response.append(
+            RecommendedCandidateResponse(
+                candidate_id=r_id,
+                student_name=name_map[r_id],
+                score=res.score.overall_score,
+                tier=res.match_tier.value + "_MATCH",
+                strengths=top_strengths,
+                gaps=top_gaps,
+                overall_narrative=res.explanation.overall_narrative
+            )
+        )
+        
+    return response

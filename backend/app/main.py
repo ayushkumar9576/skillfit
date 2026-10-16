@@ -20,6 +20,7 @@ from app.api.v1.admin_users import router as admin_users_router
 from app.api.v1.admin_import import router as admin_import_router
 from app.api.v1.profile import router as profile_router
 from app.api.v1.drives import router as drives_router
+from app.api.v1.students import router as students_router
 from app.api.v1.candidate_profile import router as candidate_profile_router
 from app.api.v1.dashboards import student_router as student_dashboard_router, admin_router as admin_dashboard_router, faculty_router as faculty_dashboard_router
 from app.core.rate_limit import limiter
@@ -76,6 +77,7 @@ app.include_router(candidate_profile_router)
 # Phase 4.1 — Drive Intelligence Foundation
 # drives_router now includes Drive CRUD, lifecycle management, and snapshot retrieval.
 app.include_router(drives_router)
+app.include_router(students_router)
 
 
 @app.get("/health", tags=["Health"])
