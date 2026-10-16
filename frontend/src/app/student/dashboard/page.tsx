@@ -166,7 +166,7 @@ export default function StudentDashboardPage() {
       {/* 3. Third Section: Quick Actions */}
       <div>
         <h2 className="text-xl font-bold text-slate-800 mb-4">Quick Actions</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <Link href="/student/resume" className="group">
             <Card className="p-5 hover:border-indigo-300 hover:shadow-md transition-all h-full flex items-center gap-4">
               <div className="h-10 w-10 rounded-full bg-indigo-50 flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
@@ -191,6 +191,18 @@ export default function StudentDashboardPage() {
             </Card>
           </Link>
 
+          <Link href="/student/placement" className="group">
+            <Card className="p-5 hover:border-indigo-300 hover:shadow-md transition-all h-full flex items-center gap-4">
+              <div className="h-10 w-10 rounded-full bg-emerald-50 flex items-center justify-center group-hover:bg-emerald-100 transition-colors">
+                <Briefcase className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <h3 className="font-semibold text-slate-900">Placement Drives</h3>
+                <p className="text-xs text-slate-500">Matched opportunities</p>
+              </div>
+            </Card>
+          </Link>
+
           <Link href="/student/profile" className="group">
             <Card className="p-5 hover:border-indigo-300 hover:shadow-md transition-all h-full flex items-center gap-4">
               <div className="h-10 w-10 rounded-full bg-indigo-50 flex items-center justify-center group-hover:bg-indigo-100 transition-colors">
@@ -205,7 +217,7 @@ export default function StudentDashboardPage() {
         </div>
       </div>
 
-      {/* 4. Mentor Section (Coming Soon) */}
+      {/* 5. Mentor Section (Coming Soon) */}
       <div className="pt-8">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-xl font-bold text-slate-800">Mentorship</h2>
