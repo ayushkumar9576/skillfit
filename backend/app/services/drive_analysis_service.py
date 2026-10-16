@@ -360,6 +360,16 @@ async def execute_analysis_background(
             drive.status = DriveStatus.ready
 
         db.commit()
+
+        # Phase 5.2 — Vector Generation
+        try:
+            from app.matching.services.vector_persistence_service import VectorPersistenceService
+            VectorPersistenceService.sync_drive_vector(db, drive.id)
+            logger.info("Drive Vector synchronized successfully: drive_id=%s", drive.id)
+            print(f"\033[92mDrive Vector generated successfully: {drive.id}\033[0m")
+        except Exception as vec_exc:
+            logger.error("Drive Vector synchronization failed: drive_id=%s error=%s", drive.id, vec_exc, exc_info=True)
+            print(f"\033[91mDrive Vector generation failed: {vec_exc}\033[0m")
     except Exception as exc:
         db.rollback()
         print(f"\033[91mDriveAnalysis FAILED | Database Finalization Error | analysis_id={analysis_id}\nError: {exc}\033[0m")

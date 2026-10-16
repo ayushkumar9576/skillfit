@@ -592,6 +592,14 @@ def process_resume_pipeline(resume_id: uuid.UUID) -> None:
         _set_status(db, resume, ProcessingStatus.completed)
         logger.info("Pipeline completed successfully: resume_id=%s", resume_id)
 
+        # 5. Generate Phase 5.2 Vector
+        try:
+            from app.matching.services.vector_persistence_service import VectorPersistenceService
+            VectorPersistenceService.sync_resume_vector(db, resume_id)
+            logger.info("Vector synchronized successfully: resume_id=%s", resume_id)
+        except Exception as vec_exc:
+            logger.error("Vector synchronization failed: resume_id=%s error=%s", resume_id, vec_exc)
+
     except Exception as exc:
         # Catch-all: no unhandled exception should escape the background task
         logger.error(
