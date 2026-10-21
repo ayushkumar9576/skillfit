@@ -85,6 +85,38 @@ _MONTH_TOKENS = (
     "october", "november", "december", "present", "current", "ongoing", "till date",
 )
 
+MONTHS_REGEX_PART = r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)"
+DATE_PART_REGEX = rf"(?:{MONTHS_REGEX_PART}[\s\'’\`\ufffd]*(?:\d{{2,4}})?|(?:\d{{1,2}}[/-])?(?:19|20)\d{{2}})"
+DATE_SEP_REGEX = r"[\s\-–—to\ufffd/]+"
+END_PART_REGEX = rf"(?:{MONTHS_REGEX_PART}[\s\'’\`\ufffd]*(?:\d{{2,4}})?|(?:\d{{1,2}}[/-])?(?:19|20)\d{{2}}|Present|Current|Ongoing|Till\s*Date)"
+
+_DATE_RANGE_REGEX = re.compile(
+    rf"(?:(?:Since|From)\s+)?\b{DATE_PART_REGEX}\s*{DATE_SEP_REGEX}\s*{END_PART_REGEX}",
+    re.IGNORECASE,
+)
+_SINGLE_DATE_REGEX = re.compile(
+    rf"\b(?:(?:Since|From)\s+)?(?:{MONTHS_REGEX_PART}[\s\'’\`\ufffd]*(?:19|20)?\d{{2}}|(?:19|20)\d{{2}})\b",
+    re.IGNORECASE,
+)
+
+_BADGE_TOKENS = frozenset({
+    "live", "github", "gitlab", "bitbucket", "demo", "code", "link",
+    "deployment", "website", "view", "app", "video", "repo", "url",
+})
+
+_ACTION_PARTICIPLES = frozenset({
+    "handling", "delivering", "providing", "serving", "managing", "enabling",
+    "automating", "using", "maintaining", "supporting", "ensuring", "creating",
+    "building", "leading", "improving", "optimizing", "architecting", "engineering",
+    "deploying", "developing", "designing", "implementing", "monitoring", "integrating",
+})
+
+_NON_PROJECT_ROLES = frozenset({
+    "student ambassador", "campus ambassador", "club member", "volunteer",
+    "class representative", "core team member", "general secretary", "treasurer",
+    "event coordinator", "head boy", "head girl", "prefect",
+})
+
 # A candidate title starting with one of these verbs is an accomplishment line,
 # not a project title (titles are noun phrases). Prevents false title-splits.
 _ACTION_VERB_PREFIXES = frozenset({
@@ -93,6 +125,7 @@ _ACTION_VERB_PREFIXES = frozenset({
     "optimized", "improved", "reduced", "increased", "wrote", "added", "collaborated",
     "responsible", "spearheaded", "handled", "delivered", "maintained", "trained",
     "analyzed", "researched", "conducted", "performed", "utilized", "leveraged",
+    "automated", "contributed", "promoted", "engaged", "coordinated",
 })
 
 
@@ -224,7 +257,8 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
         Within one blank-delimited group, split back-to-back projects that lack
         a blank separator by detecting subsequent "title" lines. Conservative:
         only splits once real content (a bullet / label / description line) has
-        been seen since the previous title.
+        been seen since the previous title. Also protects against splitting
+        wrapped bullet points into standalone projects.
         """
         if not group:
             return []
@@ -238,17 +272,54 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
                 seen_content = True
                 current.append((lineno, text))
                 continue
+
+            # Check if this line is an unbulleted continuation of a previous bullet
+            if current and self._is_bullet_continuation(current[-1][1], text):
+                seen_content = True
+                current.append((lineno, text))
+                continue
+
             if seen_content and self._looks_like_title(text):
                 subs.append(current)
                 current = [(lineno, text)]
                 seen_content = False
                 continue
+
             if text.strip():
                 seen_content = True
             current.append((lineno, text))
 
         subs.append(current)
         return subs
+
+    def _is_bullet_continuation(self, prev_text: str, curr_text: str) -> bool:
+        """
+        Return True if curr_text is a continuation of an unfinished bullet line.
+        """
+        if self._is_bullet(curr_text) or self._is_label(curr_text):
+            return False
+
+        prev_s = prev_text.strip()
+        curr_s = curr_text.strip()
+        if not prev_s or not curr_s:
+            return False
+
+        # Strong structural markers never count as bullet continuations
+        if "|" in curr_s or match_section_header(curr_s) is not None:
+            return False
+
+        # If previous line was a bullet (or continuation) and did NOT end with terminal punctuation
+        if not prev_s.endswith((".", "!", "?", ":", ";")):
+            # If current line starts with continuation words, participles, or commas
+            first_token = re.sub(r"[^a-zA-Z]", "", curr_s.split()[0]).lower() if curr_s.split() else ""
+            if not curr_s[0].isupper() or first_token in {"and", "or", "with", "for", "by", "to", "in", "on", "of", "as", "enabling", "handling", "delivering", "across", "backed"}:
+                return True
+            if any(part in curr_s.lower() for part in _ACTION_PARTICIPLES):
+                return True
+            if curr_s.count(",") >= 2:
+                return True
+
+        return False
 
     # -- line classification helpers ---------------------------------------
 
@@ -273,17 +344,30 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
         if self._is_bullet(text) or self._is_label(text):
             return False
 
+        # If line matches a recognized section header, it cannot be a project title
+        if match_section_header(s) is not None:
+            return False
+
         core = self._strip_decorations(s)
         if not core:
             return False
 
-        # Strong structural signals.
+        # Strong structural signals: bold, pipe, date range
         if (s.startswith("**") and s.endswith("**")) or (s.startswith("__") and s.endswith("__")):
             return True
-        if " | " in s:
+        if "|" in s:
             return True
         if re.search(r"\s[–—\-]\s", s) and re.search(r"(19|20)\d{2}", s):
             return True
+
+        # Non-pipe lines: reject lines with narrative action participles (e.g. "...handling resume intelligence...")
+        core_lower = core.lower()
+        if any(part in core_lower for part in _ACTION_PARTICIPLES):
+            return False
+
+        # Multiple comma-separated clauses indicate narrative or tech list, not a title
+        if core.count(",") >= 2:
+            return False
 
         # Title-case / caps heuristic on a short noun phrase.
         first_word = re.sub(r"[^a-zA-Z]", "", core.split()[0]).lower() if core.split() else ""
@@ -325,6 +409,14 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
         title_lineno, title_raw = segment[title_idx]
         title_text, inline_tech = self._parse_title(title_raw)
         if not title_text:
+            return None
+
+        # Filter out section headers misidentified as project titles
+        if match_section_header(title_text) is not None:
+            return None
+
+        # Filter out non-project extracurricular/leadership roles lacking technical context
+        if title_text.strip().lower() in _NON_PROJECT_ROLES:
             return None
 
         technologies: List[str] = list(inline_tech)
@@ -380,6 +472,18 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
                     evidences.append(self._evidence(highlight, lineno, context=stripped))
                 continue
 
+            # Check if this non-bullet line is an unbulleted continuation of the previous bullet
+            if highlights and self._is_bullet_continuation(highlights[-1], stripped):
+                highlights[-1] = f"{highlights[-1]} {stripped}"
+                evidences.append(self._evidence(stripped, lineno, context=stripped))
+                continue
+
+            # Check if this line is a standalone tech-stack line (e.g. "FastAPI, Next.js, PostgreSQL...")
+            if not technologies and self._is_tech_list_line(stripped):
+                technologies.extend(self._split_tech(stripped))
+                evidences.append(self._evidence(stripped, lineno))
+                continue
+
             # "| a, b, c" inline tech line.
             if stripped.startswith("|"):
                 techs = self._split_tech(stripped.lstrip("|"))
@@ -417,34 +521,88 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
             line_number=lineno,
         )
 
+    @staticmethod
+    def _extract_and_strip_date(text: str) -> Tuple[str, Optional[str]]:
+        m = _DATE_RANGE_REGEX.search(text) or _SINGLE_DATE_REGEX.search(text)
+        if not m:
+            return text.strip(), None
+        date_str = m.group(0).strip()
+        cleaned = text[:m.start()] + " " + text[m.end():]
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" \t\r\n|,–—-\ufffd")
+        return cleaned, date_str
+
+    @classmethod
+    def _is_tech_list_line(cls, text: str) -> bool:
+        """Detect standalone tech lines like 'FastAPI, Next.js, PostgreSQL, Redis'."""
+        s = text.strip()
+        if not s or cls._is_bullet(text) or cls._is_label(text) or "|" in s:
+            return False
+        if s.endswith((".", "!", "?")):
+            return False
+        tokens = [t.strip() for t in _TECH_SPLIT_PATTERN.split(s) if t.strip()]
+        if len(tokens) < 2:
+            return False
+        if any(len(t) > 35 for t in tokens):
+            return False
+        for t in tokens:
+            first = re.sub(r"[^a-zA-Z]", "", t.split()[0]).lower() if t.split() else ""
+            if first in _ACTION_VERB_PREFIXES:
+                return False
+        return True
+
     def _parse_title(self, title_raw: str) -> Tuple[str, List[str]]:
         """
-        Return ``(title, inline_tech)``. Handles the common
-        ``Project Name | React, Node | Jan 2024`` one-line format by taking the
-        first pipe segment as the title and mining the rest for technologies.
+        Return ``(title, inline_tech)``. Handles pipe segments, stripping dates
+        and link badges, and gathering inline technologies.
         """
         core = self._strip_decorations(title_raw)
+        core, _date = self._extract_and_strip_date(core)
         inline_tech: List[str] = []
-        if " | " in core:
-            parts = [p.strip() for p in core.split(" | ") if p.strip()]
+
+        if "|" in core:
+            parts = [p.strip() for p in re.split(r"\s*\|\s*", core) if p.strip()]
             if parts:
                 title = parts[0]
                 for part in parts[1:]:
-                    if self._is_date_range(part):
+                    part_clean, _d = self._extract_and_strip_date(part)
+                    if not part_clean:
                         continue
-                    inline_tech.extend(self._split_tech(part))
-                return title, inline_tech
+                    if part_clean.lower() in _BADGE_TOKENS:
+                        continue
+                    if self._is_date_range(part_clean):
+                        continue
+                    inline_tech.extend(self._split_tech(part_clean))
+                title_clean, _d2 = self._extract_and_strip_date(title)
+                return title_clean, inline_tech
+        elif re.search(r"\s+[–—\-]\s+", core):
+            parts = [p.strip() for p in re.split(r"\s+[–—\-]\s+", core) if p.strip()]
+            if len(parts) >= 2:
+                part_clean, _d = self._extract_and_strip_date(parts[1])
+                tech_candidates = self._split_tech(part_clean) if part_clean else []
+                if tech_candidates and ("," in part_clean or len(tech_candidates) >= 1):
+                    title = parts[0]
+                    inline_tech.extend(tech_candidates)
+                    for extra_part in parts[2:]:
+                        extra_clean, _ = self._extract_and_strip_date(extra_part)
+                        if extra_clean:
+                            inline_tech.extend(self._split_tech(extra_clean))
+                    title_clean, _d2 = self._extract_and_strip_date(title)
+                    return title_clean, inline_tech
+
         return core, inline_tech
 
     def _split_tech(self, value: str) -> List[str]:
         techs: List[str] = []
-        for part in _TECH_SPLIT_PATTERN.split(value):
+        val_clean, _ = self._extract_and_strip_date(value)
+        for part in _TECH_SPLIT_PATTERN.split(val_clean):
             token = part.strip().strip(".").strip()
             if not token:
                 continue
             if self._is_date_range(token) or re.fullmatch(r"(19|20)\d{2}", token):
                 continue
             if len(token) > 40:  # too long to be a tech token; likely prose
+                continue
+            if token.lower() in _BADGE_TOKENS:
                 continue
             techs.append(token)
         return techs
@@ -454,6 +612,8 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
         low = value.lower().strip()
         if not low:
             return False
+        if bool(_DATE_RANGE_REGEX.search(value) or _SINGLE_DATE_REGEX.search(value)):
+            return True
         if any(low == m or low.startswith(m + " ") for m in _MONTH_TOKENS):
             return True
         # Contains a year and little other alphabetic content (e.g. "2021-2022").
