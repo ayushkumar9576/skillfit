@@ -8,6 +8,7 @@ from app.matching.vectorization.schema import (
     NAMESPACE_DOMAIN,
     NAMESPACE_SIGNAL
 )
+from app.matching.vectorization.canon import normalize_technology_name
 
 class DriveVectorizer:
     IMPORTANCE_MULTIPLIERS = {
@@ -23,9 +24,9 @@ class DriveVectorizer:
         "BONUS": 0.3,
     }
 
-    @staticmethod
-    def _normalize_tech(name: str) -> str:
-        return name.strip().lower()
+    @classmethod
+    def _normalize_tech(cls, name: str) -> str:
+        return normalize_technology_name(name)
 
     @classmethod
     def generate(cls, profile: DriveIntelligenceProfile) -> DriveVectorPayload:
@@ -51,28 +52,20 @@ class DriveVectorizer:
         domains = {}
         if profile.domain:
             domains[profile.domain.domain] = 1.0
-            # Domain is usually considered a fundamental expectation.
-            # If domain isn't explicitly CRITICAL in Phase 5.1 we skip adding to critical_requirements 
-            # unless instructed. Let's add it as CRITICAL since its score is hardcoded to 1.0.
-            critical_requirements.append(f"{NAMESPACE_DOMAIN}{profile.domain.domain}")
             
         signals = {}
         for signal in profile.hiring_signals:
             score = cls.IMPORTANCE_MULTIPLIERS.get(signal.importance, 0.25)
             if signals.get(signal.signal, 0.0) < score:
                 signals[signal.signal] = score
-            if signal.importance == "CRITICAL":
-                critical_requirements.append(f"{NAMESPACE_SIGNAL}{signal.signal}")
                 
         for ind in profile.success_indicators:
             score = cls.STRENGTH_MULTIPLIERS.get(ind.strength, 0.5)
             if signals.get(ind.indicator, 0.0) < score:
                 signals[ind.indicator] = score
-            if ind.strength == "REQUIRED":
-                critical_requirements.append(f"{NAMESPACE_SIGNAL}{ind.indicator}")
 
         # Deduplicate critical requirements safely
-        critical_requirements = list(set(critical_requirements))
+        critical_requirements = sorted(list(set(critical_requirements)))
 
         return DriveVectorPayload(
             schema_version=VECTOR_SCHEMA_VERSION,
@@ -82,3 +75,4 @@ class DriveVectorizer:
             signals=signals,
             critical_requirements=critical_requirements
         )
+

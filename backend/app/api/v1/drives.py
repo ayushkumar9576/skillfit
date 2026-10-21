@@ -813,7 +813,7 @@ def get_snapshot(
 
 # --- Phase 5.3C Recommendation Endpoint ---
 
-from app.schemas.matching import RecommendedCandidateResponse
+from app.schemas.matching import RecommendedCandidateResponse, DimensionBreakdownDTO
 from app.matching.services.recommendation_service import RecommendationService
 from app.models.resume_file import ResumeFile
 from app.models.student import Student
@@ -853,26 +853,6 @@ def get_drive_recommended_candidates(
     # 3. Hydrate DTOs (Batch load resumes -> students)
     resume_ids = [UUID(res.candidate_id) for res in match_results]
     
-    # We join ResumeFile -> Student to get the name
-    resumes = db.query(ResumeFile, Student).join(Student, ResumeFile.student_id == Student.id).filter(ResumeFile.id.in_(resume_ids)).all()
-    
-    resume_map = {r[0].id: r for r in resumes}
-    
-    response = []
-    for res in match_results:
-        r_id = UUID(res.candidate_id)
-        if r_id not in resume_map:
-            continue
-            
-        resume_model, student_model = resume_map[r_id]
-        
-        # User model join isn't strictly necessary if Student model has the name,
-        # but let's check what student_model has.
-        # Actually, Student has user_id, User has full_name.
-        # Let's batch load users as well.
-        pass
-        
-    # We need full names. Let's do a better batch query.
     resumes_with_names = (
         db.query(ResumeFile.id, UserModel.full_name)
         .join(Student, ResumeFile.student_id == Student.id)
@@ -882,6 +862,7 @@ def get_drive_recommended_candidates(
     )
     name_map = {r[0]: r[1] for r in resumes_with_names}
     
+    response = []
     for res in match_results:
         r_id = UUID(res.candidate_id)
         if r_id not in name_map:
@@ -889,17 +870,36 @@ def get_drive_recommended_candidates(
             
         top_strengths = [s.title.replace("Strong ", "") for s in res.explanation.strengths[:3]]
         top_gaps = [g.title.replace("Missing ", "") for g in res.explanation.gaps[:3]]
+
+        # Hydrate per-dimension score breakdown
+        dimension_breakdown = [
+            DimensionBreakdownDTO(
+                dimension=dim_key,
+                raw_score=ds.raw_score,
+                weight=ds.weight,
+                weighted_score=ds.weighted_score,
+                matched_items=ds.matched_items,
+                total_items=ds.total_items,
+                reasoning=ds.reasoning,
+                strengths=[s.title.replace("Strong ", "") for s in res.explanation.strengths if s.dimension.value == dim_key],
+                gaps=[g.title.replace("Missing ", "") for g in res.explanation.gaps if g.dimension.value == dim_key]
+            )
+            for dim_key, ds in res.score.dimension_scores.items()
+        ]
             
         response.append(
             RecommendedCandidateResponse(
                 candidate_id=r_id,
                 student_name=name_map[r_id],
                 score=res.score.overall_score,
+                raw_score=res.score.raw_score,
                 tier=res.match_tier.value + "_MATCH",
                 strengths=top_strengths,
                 gaps=top_gaps,
-                overall_narrative=res.explanation.overall_narrative
+                overall_narrative=res.explanation.overall_narrative,
+                dimension_breakdown=dimension_breakdown
             )
         )
         
     return response
+

@@ -130,7 +130,8 @@ def test_matching_engine():
     )
     
     res = match(cand_weak, drive_weak)
-    assert res.score.overall_score == 0.0 # 0.0 cosine
+    assert res.score.raw_score == 0.0 # 0.0 raw cosine
+    assert res.score.overall_score == 0.15 # 0.0 boosted to 15% floor
     assert res.match_tier == MatchTier.WEAK
     assert len(res.explanation.strengths) == 0
     assert len(res.explanation.gaps) == 2

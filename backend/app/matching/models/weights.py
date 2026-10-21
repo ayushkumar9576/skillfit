@@ -17,16 +17,11 @@ Design Rules:
 Default Weight Rationale (DEFAULT_WEIGHTS):
     TECHNOLOGY (0.30): Largest single factor. Direct skill alignment is the
                        most reliable signal of role fit.
-    COMPETENCY (0.25): Engineering capability patterns (backend, ML, etc.)
-                       matter almost as much as raw technologies.
-    DOMAIN     (0.15): Domain alignment provides context but can be inferred
-                       from competencies, so it carries less independent weight.
-    SIGNAL     (0.15): Hiring signals (DSA_FOCUSED, PROJECT_FOCUSED) are
-                       important differentiators in campus hiring contexts.
-    PROJECT    (0.10): Sophistication indicates readiness but is already
-                       partially captured by technologies and competencies.
-    BEHAVIORAL (0.05): Behavioral signals are very weakly extracted from
-                       resumes; given low precision, they carry low weight.
+    COMPETENCY (0.20): Core engineering capability patterns (backend, API, etc.).
+    DOMAIN     (0.10): High-level technical domain compatibility.
+    SIGNAL     (0.15): Hiring signals (DSA_FOCUSED, PROJECT_FOCUSED, etc.).
+    PROJECT    (0.20): Project sophistication and complexity demonstrate hands-on readiness.
+    BEHAVIORAL (0.05): Ownership signals, testing discipline, and architecture practices.
 
 Phase 5.1 — Foundation Only.
 """
@@ -47,12 +42,13 @@ from app.matching.enums import MatchDimension
 #: Default weights for the Phase 5 Matching Engine. See module docstring.
 DEFAULT_WEIGHTS: Dict[str, float] = {
     MatchDimension.TECHNOLOGY.value: 0.30,
-    MatchDimension.COMPETENCY.value: 0.25,
-    MatchDimension.DOMAIN.value:     0.15,
+    MatchDimension.COMPETENCY.value: 0.20,
+    MatchDimension.DOMAIN.value:     0.10,
     MatchDimension.SIGNAL.value:     0.15,
-    MatchDimension.PROJECT.value:    0.10,
+    MatchDimension.PROJECT.value:    0.20,
     MatchDimension.BEHAVIORAL.value: 0.05,
 }
+
 
 #: Minimum allowed weight for any dimension.
 _WEIGHT_MIN: float = 0.0  # exclusive

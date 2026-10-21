@@ -10,7 +10,7 @@ from app.models.user import User
 from app.models.student import Student
 from app.models.resume_file import ResumeFile
 from app.models.drive import Drive
-from app.schemas.matching import RecommendedDriveResponse
+from app.schemas.matching import RecommendedDriveResponse, DimensionBreakdownDTO
 from app.matching.services.recommendation_service import RecommendationService
 
 router = APIRouter(prefix="/api/v1/students", tags=["Students"])
@@ -71,6 +71,22 @@ def get_student_recommended_drives(
             
         top_strengths = [s.title.replace("Strong ", "") for s in res.explanation.strengths[:3]]
         top_gaps = [g.title.replace("Missing ", "") for g in res.explanation.gaps[:3]]
+
+        # Hydrate per-dimension score breakdown
+        dimension_breakdown = [
+            DimensionBreakdownDTO(
+                dimension=dim_key,
+                raw_score=ds.raw_score,
+                weight=ds.weight,
+                weighted_score=ds.weighted_score,
+                matched_items=ds.matched_items,
+                total_items=ds.total_items,
+                reasoning=ds.reasoning,
+                strengths=[s.title.replace("Strong ", "") for s in res.explanation.strengths if s.dimension.value == dim_key],
+                gaps=[g.title.replace("Missing ", "") for g in res.explanation.gaps if g.dimension.value == dim_key]
+            )
+            for dim_key, ds in res.score.dimension_scores.items()
+        ]
             
         response.append(
             RecommendedDriveResponse(
@@ -78,11 +94,14 @@ def get_student_recommended_drives(
                 drive_title=drive_model.role,
                 company_name=drive_model.company_name,
                 score=res.score.overall_score,
+                raw_score=res.score.raw_score,
                 tier=res.match_tier.value + "_MATCH",
                 strengths=top_strengths,
                 gaps=top_gaps,
-                overall_narrative=res.explanation.overall_narrative
+                overall_narrative=res.explanation.overall_narrative,
+                dimension_breakdown=dimension_breakdown
             )
         )
         
     return response
+

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import dataclasses
 from dataclasses import dataclass, field
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 from app.matching.enums import MatchDimension
 
@@ -218,11 +218,14 @@ class MatchScore:
     dimension_scores: Dict[str, DimensionScore] = field(default_factory=dict)
     coverage_ratio:   float = 1.0
     scoring_version:  str   = "5.2.0"
+    raw_score:        Optional[float] = None
 
     def __post_init__(self) -> None:
         """Validate all numeric fields and dimension_scores structure."""
         self.overall_score  = _validate_score(self.overall_score, "overall_score")
         self.coverage_ratio = _validate_score(self.coverage_ratio, "coverage_ratio")
+        if self.raw_score is not None:
+            self.raw_score = _validate_score(self.raw_score, "raw_score")
 
         if not isinstance(self.dimension_scores, dict):
             raise TypeError(
@@ -254,12 +257,15 @@ class MatchScore:
 
     def to_dict(self) -> dict:
         """Serialize to a plain dict for JSON-safe storage and API serialization."""
-        return {
+        data = {
             "overall_score":    self.overall_score,
             "dimension_scores": {k: v.to_dict() for k, v in self.dimension_scores.items()},
             "coverage_ratio":   self.coverage_ratio,
             "scoring_version":  self.scoring_version,
         }
+        if self.raw_score is not None:
+            data["raw_score"] = self.raw_score
+        return data
 
     @classmethod
     def zero(cls, scoring_version: str = "5.2.0") -> "MatchScore":
