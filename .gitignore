@@ -52,7 +52,7 @@ wheels/
 *.egg-info/
 .installed.cfg
 *.egg
-
+!frontend/src/lib/
 # ---------------------------------------------------------------------------
 # Uploads, Storage & Internal Data
 # ---------------------------------------------------------------------------
@@ -82,3 +82,4 @@ DEBUG
 tests
 backend/Admin
 Project_docs.txt
+temp.py

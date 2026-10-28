@@ -9,7 +9,7 @@ import ErrorState from "@/components/shared/ErrorState";
 import Card from "@/components/shared/Card";
 import StatusBadge from "@/components/shared/StatusBadge";
 import ProgressTracker from "@/components/shared/ProgressTracker";
-import { UploadCloud, FileText, UserCircle, Briefcase, Award, FolderGit2 } from "lucide-react";
+import { UploadCloud, FileText, UserCircle, Briefcase, Award, FolderGit2, Clock } from "lucide-react";
 import Link from "next/link";
 
 export default function StudentDashboardPage() {
@@ -95,6 +95,39 @@ export default function StudentDashboardPage() {
           </Card>
         )}
       </div>
+
+      {/* Resume Processing / Pending Notice */}
+      {latestResume && latestResume.processing_status !== "completed" && (
+        <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div className="flex items-center gap-3">
+            <div className="h-9 w-9 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center shrink-0">
+              <Clock className="h-5 w-5 text-indigo-600" />
+            </div>
+            <div>
+              <h3 className="font-semibold text-slate-800 text-sm">
+                {latestResume.processing_status === "processing"
+                  ? "Resume Analysis in Progress"
+                  : latestResume.processing_status === "uploaded"
+                  ? "Resume Analysis Pending Administrator Review"
+                  : "Resume Analysis Failed"}
+              </h3>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {latestResume.processing_status === "processing"
+                  ? `"${latestResume.file_name}" is currently being evaluated by the intelligence engine.`
+                  : latestResume.processing_status === "uploaded"
+                  ? `"${latestResume.file_name}" has been uploaded and is awaiting administrator analysis.`
+                  : `There was an issue processing "${latestResume.file_name}". Please upload a new CV.`}
+              </p>
+            </div>
+          </div>
+          <Link
+            href="/student/analysis"
+            className="self-start sm:self-auto px-3.5 py-1.5 bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg hover:bg-slate-100 transition-colors shrink-0 shadow-sm"
+          >
+            Check Status
+          </Link>
+        </div>
+      )}
 
       {/* 2. Second Section: Metrics */}
       <div>
@@ -186,7 +219,15 @@ export default function StudentDashboardPage() {
               </div>
               <div>
                 <h3 className="font-semibold text-slate-900">View Analysis</h3>
-                <p className="text-xs text-slate-500">See your latest insights</p>
+                <p className="text-xs text-slate-500">
+                  {latestResume?.processing_status === "completed" 
+                    ? "See your latest insights" 
+                    : latestResume?.processing_status === "processing" 
+                    ? "Analysis in progress..." 
+                    : latestResume 
+                    ? "Analysis pending review" 
+                    : "Upload CV to begin"}
+                </p>
               </div>
             </Card>
           </Link>
