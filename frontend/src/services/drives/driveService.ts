@@ -1,5 +1,5 @@
 import apiClient from "@/lib/api/client";
-import { DriveResponse, DriveListResponse } from "@/types/drives";
+import { DriveResponse } from "@/types/drives";
 
 const BASE_URL = "/api/v1/drives";
 

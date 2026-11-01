@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import axios from "axios";
 import { getLatestSnapshot, getSnapshot, getSnapshotHistory } from "@/services/drives/snapshotService";
 import { SnapshotDetailResponse, SnapshotListResponse } from "@/types/drives";
 
@@ -8,9 +9,9 @@ export const useLatestSnapshot = (driveId: string) => {
     queryFn: () => getLatestSnapshot(driveId),
     staleTime: Infinity,
     enabled: !!driveId,
-    retry: (failureCount, error: any) => {
+    retry: (failureCount, error) => {
       // Don't retry if it's a 404 (meaning no snapshot exists yet)
-      if (error?.response?.status === 404) return false;
+      if (axios.isAxiosError(error) && error.response?.status === 404) return false;
       return failureCount < 3;
     },
   });

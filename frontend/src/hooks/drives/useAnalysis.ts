@@ -3,8 +3,6 @@ import { getAnalysisHistory, triggerAnalysis } from "@/services/drives/analysisS
 import { AnalysisListResponse, AnalysisResponse, AnalyzeDriveRequest, DriveResponse } from "@/types/drives";
 
 export const useAnalysisHistory = (driveId: string, drive?: DriveResponse) => {
-  const queryClient = useQueryClient();
-
   return useQuery<AnalysisListResponse, Error>({
     queryKey: ["analysis", driveId],
     queryFn: () => getAnalysisHistory(driveId),

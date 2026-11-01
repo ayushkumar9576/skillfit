@@ -1,5 +1,5 @@
 import React, { useCallback, useState } from "react";
-import { UploadCloud, File as FileIcon, X, CheckCircle, AlertCircle, Loader2 } from "lucide-react";
+import { UploadCloud, File as FileIcon, X, AlertCircle, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 interface UploadCardProps {
@@ -29,7 +29,7 @@ export default function UploadCard({
     }
   }, []);
 
-  const validateFile = (file: File): boolean => {
+  const validateFile = useCallback((file: File): boolean => {
     setError(null);
     if (accept === "application/pdf" && file.type !== "application/pdf") {
       setError("Please upload a valid PDF file.");
@@ -40,7 +40,7 @@ export default function UploadCard({
       return false;
     }
     return true;
-  };
+  }, [accept, maxSizeMB]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -53,7 +53,7 @@ export default function UploadCard({
         setSelectedFile(file);
       }
     }
-  }, [accept, maxSizeMB]);
+  }, [validateFile]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     e.preventDefault();

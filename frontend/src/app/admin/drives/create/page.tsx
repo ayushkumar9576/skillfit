@@ -2,9 +2,10 @@
 
 import React, { useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Save, Building2, Briefcase, MapPin, IndianRupee, FileText, Calendar, Upload } from "lucide-react";
+import { Save, Building2, Briefcase, MapPin, IndianRupee, FileText, Calendar, Upload } from "lucide-react";
 import Link from "next/link";
 import { fetchApi } from "@/lib/api";
+import { DriveResponse } from "@/types/drives";
 
 export default function CreateDrivePage() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function CreateDrivePage() {
     };
 
     try {
-      const response = await fetchApi("/api/v1/drives", {
+      const response = await fetchApi<DriveResponse>("/api/v1/drives", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -76,8 +77,12 @@ export default function CreateDrivePage() {
 
       // Success, redirect to pending queue
       router.push("/admin/drives/pending");
-    } catch (err: any) {
-      setError(err.message);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("Failed to create drive. Please try again.");
+      }
       setIsSubmitting(false);
     }
   };

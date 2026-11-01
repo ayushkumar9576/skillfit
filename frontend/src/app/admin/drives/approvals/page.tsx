@@ -4,9 +4,10 @@ import React, { useEffect, useState } from "react";
 import { fetchApi } from "@/lib/api";
 import DriveCard from "@/components/drives/DriveCard";
 import { Loader2, Inbox } from "lucide-react";
+import { DriveResponse, DriveListResponse } from "@/types/drives";
 
 export default function ApprovalsPage() {
-  const [drives, setDrives] = useState<any[]>([]);
+  const [drives, setDrives] = useState<DriveResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -15,9 +16,9 @@ export default function ApprovalsPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetchApi("/api/v1/drives?status=ready&limit=100");
+        const response = await fetchApi<DriveListResponse>("/api/v1/drives?status=ready&limit=100");
         setDrives(response.drives || []);
-      } catch (err: any) {
+      } catch (err: unknown) {
         setError("Failed to load awaiting approval queue. Please try again.");
         console.error(err);
       } finally {

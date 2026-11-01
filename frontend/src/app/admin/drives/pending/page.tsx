@@ -5,9 +5,10 @@ import { fetchApi } from "@/lib/api";
 import DriveCard, { DriveStatusType } from "@/components/drives/DriveCard";
 import { Loader2, Inbox } from "lucide-react";
 import Link from "next/link";
+import { DriveResponse, DriveListResponse } from "@/types/drives";
 
 export default function PendingAnalysisPage() {
-  const [drives, setDrives] = useState<any[]>([]);
+  const [drives, setDrives] = useState<DriveResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -19,7 +20,7 @@ export default function PendingAnalysisPage() {
         // Fetch draft, analyzing, and analysis_failed concurrently
         const statuses: DriveStatusType[] = ["draft", "analyzing", "analysis_failed"];
         const promises = statuses.map((status) =>
-          fetchApi(`/api/v1/drives?status=${status}&limit=100`)
+          fetchApi<DriveListResponse>(`/api/v1/drives?status=${status}&limit=100`)
         );
 
         const results = await Promise.all(promises);
@@ -29,7 +30,7 @@ export default function PendingAnalysisPage() {
         combinedDrives.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
         
         setDrives(combinedDrives);
-      } catch (err: any) {
+      } catch (err: unknown) {
         setError("Failed to load pending drives. Please try again.");
         console.error(err);
       } finally {

@@ -5,6 +5,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import { DriveStatusType } from "@/components/drives/DriveCard";
+import { DriveResponse, SnapshotDetailResponse } from "@/types/drives";
 import IntelligenceReview from "@/components/drives/IntelligenceReview";
 import RecommendedCandidates from "@/components/dashboard/RecommendedCandidates";
 import { 
@@ -42,13 +43,13 @@ export default function DriveWorkspacePage() {
     setIsLoading(true);
     setError(null);
     try {
-      const driveData = await fetchApi(`/api/v1/drives/${id}`);
+      const driveData = await fetchApi<DriveResponse>(`/api/v1/drives/${id}`);
       setDrive(driveData);
 
       // If it's ready or published, try to fetch the snapshot
       if (driveData.status === "ready" || driveData.status === "published") {
         try {
-          const snapshotData = await fetchApi(`/api/v1/drives/${id}/snapshots/latest`);
+          const snapshotData = await fetchApi<SnapshotDetailResponse>(`/api/v1/drives/${id}/snapshots/latest`);
           setSnapshot(snapshotData);
         } catch (snapErr) {
           console.error("Failed to load snapshot:", snapErr);
@@ -75,7 +76,7 @@ export default function DriveWorkspacePage() {
     if (drive?.status === "analyzing") {
       interval = setInterval(async () => {
         try {
-          const driveData = await fetchApi(`/api/v1/drives/${id}`);
+          const driveData = await fetchApi<DriveResponse>(`/api/v1/drives/${id}`);
           if (driveData.status !== "analyzing") {
             // Status changed! Reload full data to get snapshot or failure state
             loadData();
