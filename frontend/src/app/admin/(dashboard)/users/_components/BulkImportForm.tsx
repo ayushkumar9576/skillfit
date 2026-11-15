@@ -2,7 +2,9 @@
 
 import { useState, useRef } from "react";
 import { Upload, FileSpreadsheet, Download, AlertCircle, CheckCircle2, X } from "lucide-react";
-import { getToken } from "@/lib/auth/token";
+import axios from "axios";
+import apiClient from "@/lib/api/client";
+import { parseApiError } from "@/lib/utils";
 
 interface BulkImportFormProps {
   type: "student" | "faculty";
@@ -97,53 +99,31 @@ export default function BulkImportForm({ type }: BulkImportFormProps) {
     formData.append("file", file);
 
     try {
-      const token = getToken();
-      const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-      const response = await fetch(`${baseUrl}${apiEndpoint}`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`
-        },
-        body: formData,
+      const { data } = await apiClient.post<ImportResult>(apiEndpoint, formData, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 60000,
       });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.errors) {
-          setResult({ success: false, errors: data.errors });
-        } else {
-          setErrorMsg(data.detail || "Upload failed due to a server error.");
-        }
-      } else {
-        setResult(data);
+      setResult(data);
+      if (data.success) {
         setFile(null);
         if (fileInputRef.current) {
           fileInputRef.current.value = "";
         }
       }
     } catch (err) {
-      console.error("Upload error:", err);
-      setErrorMsg("A network error occurred. Please try again.");
+      if (axios.isAxiosError<ImportResult>(err) && err.response?.data.errors) {
+        setResult({ success: false, errors: err.response.data.errors });
+      } else {
+        setErrorMsg(parseApiError(err).message);
+      }
     } finally {
       setIsUploading(false);
     }
   };
 
-  const handleDownloadTemplate = () => {
-    const baseUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    const token = getToken();
-    
-    fetch(`${baseUrl}${templateEndpoint}`, {
-      headers: {
-        Authorization: `Bearer ${token}`
-      }
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error("Failed to download template");
-        return res.blob();
-      })
-      .then((blob) => {
+  const handleDownloadTemplate = async () => {
+    try {
+        const { data: blob } = await apiClient.get<Blob>(templateEndpoint, { responseType: "blob" });
         const url = window.URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -152,11 +132,9 @@ export default function BulkImportForm({ type }: BulkImportFormProps) {
         a.click();
         window.URL.revokeObjectURL(url);
         a.remove();
-      })
-      .catch((err) => {
-        console.error(err);
-        setErrorMsg("Failed to download template.");
-      });
+    } catch (err) {
+        setErrorMsg(parseApiError(err).message);
+    }
   };
 
   return (

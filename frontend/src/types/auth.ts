@@ -40,6 +40,8 @@ export interface User {
   cgpa?: number;
   phone?: string;
   department?: string;
+  graduation_year?: number | null;
+  active_backlogs?: number | null;
 }
 
 /**

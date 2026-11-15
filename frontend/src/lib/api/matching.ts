@@ -23,6 +23,8 @@ export interface RecommendedDrive {
   gaps: string[];
   overall_narrative: string;
   dimension_breakdown?: DimensionBreakdown[];
+  is_eligible?: boolean;
+  eligibility_reasons?: string[];
 }
 
 export interface RecommendedCandidate {
@@ -35,6 +37,8 @@ export interface RecommendedCandidate {
   gaps: string[];
   overall_narrative: string;
   dimension_breakdown?: DimensionBreakdown[];
+  is_eligible?: boolean;
+  eligibility_reasons?: string[];
 }
 
 export const getRecommendedDrives = async (): Promise<RecommendedDrive[]> => {

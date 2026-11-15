@@ -7,12 +7,13 @@ import Card from "@/components/shared/Card";
 import LoadingState from "@/components/shared/LoadingState";
 import ErrorState from "@/components/shared/ErrorState";
 import DetailedScoreBreakdownModal from "@/components/dashboard/DetailedScoreBreakdownModal";
-import { Building2, CheckCircle2, XCircle, ChevronRight, BarChart3 } from "lucide-react";
+import { parseApiError } from "@/lib/utils";
+import { Building2, CheckCircle2, XCircle, ChevronRight, BarChart3, AlertTriangle } from "lucide-react";
 
 export default function RecommendedDrives() {
   const [selectedDrive, setSelectedDrive] = useState<RecommendedDrive | null>(null);
 
-  const { data: drives, isLoading, error } = useQuery({
+  const { data: drives, isLoading, error, refetch } = useQuery({
     queryKey: ["recommendedDrives"],
     queryFn: () => getRecommendedDrives(),
   });
@@ -22,7 +23,7 @@ export default function RecommendedDrives() {
   }
 
   if (error) {
-    return <ErrorState message="Failed to load recommendations." />;
+    return <ErrorState message={parseApiError(error).message} retryAction={() => refetch()} />;
   }
 
   if (!drives || drives.length === 0) {
@@ -53,16 +54,27 @@ export default function RecommendedDrives() {
                     <span className="font-medium">{drive.company_name || "Unknown Company"}</span>
                   </div>
                 </div>
-                <div className="text-right">
-                  <span className={`px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${
-                    drive.tier === "EXCELLENT_MATCH" ? "bg-emerald-100 text-emerald-800" :
-                    drive.tier === "STRONG_MATCH" ? "bg-indigo-100 text-indigo-800" :
-                    drive.tier === "MODERATE_MATCH" ? "bg-amber-100 text-amber-800" :
-                    "bg-red-100 text-red-800"
-                  }`}>
-                    {drive.tier.replace("_MATCH", "")}
-                  </span>
-                  <div className="mt-2 text-xl font-bold text-slate-700">
+                <div className="text-right flex flex-col items-end gap-1">
+                  <div className="flex items-center gap-1.5">
+                    {drive.is_eligible === false ? (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-rose-100 text-rose-800 border border-rose-200">
+                        Not Eligible
+                      </span>
+                    ) : (
+                      <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-emerald-50 text-emerald-700 border border-emerald-200">
+                        Eligible
+                      </span>
+                    )}
+                    <span className={`px-2.5 py-1 rounded-full text-xs font-semibold tracking-wide ${
+                      drive.tier === "EXCELLENT_MATCH" ? "bg-emerald-100 text-emerald-800" :
+                      drive.tier === "STRONG_MATCH" ? "bg-indigo-100 text-indigo-800" :
+                      drive.tier === "MODERATE_MATCH" ? "bg-amber-100 text-amber-800" :
+                      "bg-red-100 text-red-800"
+                    }`}>
+                      {drive.tier.replace("_MATCH", "")}
+                    </span>
+                  </div>
+                  <div className="mt-1 text-xl font-bold text-slate-700">
                     {Math.round(drive.score * 100)}% Match
                   </div>
                 </div>
@@ -71,6 +83,24 @@ export default function RecommendedDrives() {
               <div className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100/80">
                 {drive.overall_narrative}
               </div>
+
+              {drive.is_eligible === false && (
+                <div className="text-xs text-rose-700 bg-rose-50/90 p-3 rounded-xl border border-rose-200/80 flex flex-col gap-1.5">
+                  <div className="font-semibold flex items-center gap-1.5 text-rose-800">
+                    <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                    Academic Eligibility Criteria Not Met:
+                  </div>
+                  <ul className="list-disc list-inside space-y-0.5 text-rose-600 pl-1">
+                    {drive.eligibility_reasons && drive.eligibility_reasons.length > 0 ? (
+                      drive.eligibility_reasons.map((reason, idx) => (
+                        <li key={idx}>{reason}</li>
+                      ))
+                    ) : (
+                      <li>Does not satisfy mandatory academic criteria for this drive.</li>
+                    )}
+                  </ul>
+                </div>
+              )}
 
               <div className="grid grid-cols-2 gap-4 mt-2">
                 <div>
@@ -124,6 +154,8 @@ export default function RecommendedDrives() {
           dimensionBreakdown={selectedDrive.dimension_breakdown}
           strengths={selectedDrive.strengths}
           gaps={selectedDrive.gaps}
+          isEligible={selectedDrive.is_eligible}
+          eligibilityReasons={selectedDrive.eligibility_reasons}
         />
       )}
     </>

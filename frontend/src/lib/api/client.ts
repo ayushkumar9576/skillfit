@@ -30,13 +30,15 @@ apiClient.interceptors.request.use((config) => {
   return config;
 });
 
-// On 401, clear the stored token. The AuthProvider will detect the null
-// token on its next render cycle and set isAuthenticated = false.
+// On 401, clear stored token and notify AuthProvider via custom event.
 apiClient.interceptors.response.use(
   (response) => response,
   (error) => {
     if (axios.isAxiosError(error) && error.response?.status === 401) {
       removeToken();
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(new CustomEvent("auth:unauthorized"));
+      }
     }
     return Promise.reject(error);
   }

@@ -196,6 +196,9 @@ export interface ProjectSophisticationRecord {
 }
 
 export interface CandidateIntelligenceProfile {
+  readiness_level?: "HIGH" | "MEDIUM" | "LOW" | null;
+  readiness_score?: number | null;
+  readiness_status?: "SUCCESS" | "PARTIAL" | "FAILED" | null;
   technologies: TechnologyIntelligence[];
   competencies: CompetencyIntelligence[];
   domains: DomainIntelligence[];

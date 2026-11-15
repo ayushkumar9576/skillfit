@@ -68,6 +68,21 @@ export default function AuthProvider({ children }: AuthProviderProps) {
     restoreSession();
   }, [restoreSession]);
 
+  // Listen for 401 unauthorized events dispatched by API client interceptor
+  useEffect(() => {
+    const handleUnauthorized = () => {
+      removeToken();
+      setTokenState(null);
+      setUser(null);
+      router.push("/auth/login");
+    };
+
+    window.addEventListener("auth:unauthorized", handleUnauthorized);
+    return () => {
+      window.removeEventListener("auth:unauthorized", handleUnauthorized);
+    };
+  }, [router]);
+
   const login = useCallback(async (credentials: LoginRequest) => {
     try {
       const { access_token } = await import("@/lib/api/auth").then(m => m.loginUser(credentials));

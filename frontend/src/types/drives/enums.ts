@@ -22,6 +22,7 @@ export enum DriveAnalysisStatus {
   running = "running",
   completed = "completed",
   failed = "failed",
+  cancelled = "cancelled",
 }
 
 export enum TechnologyCategory {

@@ -3,23 +3,12 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { z } from "zod";
 import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
 import { updateProfile } from "@/lib/api/profile";
 import { useAuthContext } from "@/providers/AuthProvider";
 import { parseApiError } from "@/lib/utils";
 import ErrorAlert from "@/components/shared/ErrorAlert";
-
-const profileSchema = z.object({
-  branch: z.string().min(1, "Branch is required"),
-  cgpa: z.coerce.number().min(0, "Invalid CGPA").max(10, "Max 10").optional(),
-  phone: z.string().optional(),
-  linkedin_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-  github_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-  portfolio_url: z.string().url("Must be a valid URL").optional().or(z.literal("")),
-});
-
-type ProfileFormData = z.infer<typeof profileSchema>;
+import { profileSchema, type ProfileFormData, type ProfileFormInput } from "@/lib/validation/student-profile";
 
 export default function ProfileEditor() {
   const { user, refreshUser } = useAuthContext();
@@ -30,13 +19,16 @@ export default function ProfileEditor() {
   const {
     register,
     handleSubmit,
+    reset,
+    setError,
     formState: { errors, isSubmitting, isDirty },
-  } = useForm<ProfileFormData>({
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    resolver: zodResolver(profileSchema) as any,
+  } = useForm<ProfileFormInput, unknown, ProfileFormData>({
+    resolver: zodResolver(profileSchema),
     defaultValues: {
       branch: user?.branch || "",
-      cgpa: user?.cgpa || undefined,
+      cgpa: user?.cgpa ?? "",
+      graduation_year: user?.graduation_year ?? "",
+      active_backlogs: user?.active_backlogs ?? "",
       phone: user?.phone || "",
       linkedin_url: user?.linkedin_url || "",
       github_url: user?.github_url || "",
@@ -46,7 +38,7 @@ export default function ProfileEditor() {
 
   const missingFields: string[] = [];
   if (!user?.branch) missingFields.push("Branch");
-  if (!user?.cgpa) missingFields.push("CGPA");
+  if (user?.cgpa == null) missingFields.push("CGPA");
   if (!user?.phone) missingFields.push("Phone Number");
 
   const onSubmit = async (data: ProfileFormData) => {
@@ -65,6 +57,9 @@ export default function ProfileEditor() {
     } catch (err) {
       const parsed = parseApiError(err);
       setApiError(parsed.message);
+      for (const [field, message] of Object.entries(parsed.fieldErrors || {})) {
+        if (field in profileSchema.shape) setError(field as keyof ProfileFormInput, { message });
+      }
     }
   };
 
@@ -133,7 +128,15 @@ export default function ProfileEditor() {
               </div>
               <div>
                 <p className="text-xs font-medium text-slate-500">CGPA</p>
-                <p className="mt-1 text-sm font-medium text-slate-900">{user?.cgpa || "-"}</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">{user?.cgpa ?? "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Graduation Year</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">{user?.graduation_year ?? "-"}</p>
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500">Active Backlogs</p>
+                <p className="mt-1 text-sm font-medium text-slate-900">{user?.active_backlogs ?? "-"}</p>
               </div>
             </div>
           </section>
@@ -164,7 +167,15 @@ export default function ProfileEditor() {
 
           <div className="flex justify-end pt-6">
             <button
-              onClick={() => setIsEditing(true)}
+              onClick={() => {
+                reset({
+                  branch: user?.branch || "", cgpa: user?.cgpa ?? "", phone: user?.phone || "",
+                  graduation_year: user?.graduation_year ?? "", active_backlogs: user?.active_backlogs ?? "",
+                  linkedin_url: user?.linkedin_url || "", github_url: user?.github_url || "",
+                  portfolio_url: user?.portfolio_url || "",
+                });
+                setIsEditing(true);
+              }}
               className="rounded-md bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-500 transition-all"
             >
               Update Profile Details
@@ -207,13 +218,16 @@ export default function ProfileEditor() {
               />
             </div>
             <div className="space-y-1">
-              <label htmlFor="phone" className="text-xs font-medium text-slate-500">Phone Number</label>
+              <label htmlFor="phone" className="text-xs font-medium text-slate-500">Phone Number *</label>
               <input
                 id="phone"
                 type="tel"
+                required
+                maxLength={20}
                 {...register("phone")}
                 className="w-full rounded-md border-0 bg-white py-2.5 px-3 text-sm text-slate-900 ring-1 ring-inset ring-slate-200 focus:ring-2 focus:ring-inset focus:ring-slate-900 transition-shadow"
               />
+              {errors.phone && <p className="text-xs text-red-500 mt-1">{errors.phone.message}</p>}
             </div>
             <div className="space-y-1">
               <label htmlFor="branch" className="text-xs font-medium text-slate-500">Branch <span className="text-red-500">*</span></label>
@@ -226,15 +240,33 @@ export default function ProfileEditor() {
               {errors.branch && <p className="text-xs text-red-500 mt-1">{errors.branch.message}</p>}
             </div>
             <div className="space-y-1">
-              <label htmlFor="cgpa" className="text-xs font-medium text-slate-500">CGPA</label>
+              <label htmlFor="cgpa" className="text-xs font-medium text-slate-500">CGPA *</label>
               <input
                 id="cgpa"
                 type="number"
                 step="0.01"
+                min={0}
+                max={10}
+                required
                 {...register("cgpa")}
                 className={`w-full rounded-md border-0 bg-white py-2.5 px-3 text-sm text-slate-900 ring-1 ring-inset ${errors.cgpa ? 'ring-red-300 focus:ring-red-500' : 'ring-slate-200 focus:ring-slate-900'} transition-shadow`}
               />
               {errors.cgpa && <p className="text-xs text-red-500 mt-1">{errors.cgpa.message}</p>}
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="graduation_year" className="text-xs font-medium text-slate-500">Graduation Year</label>
+              <input id="graduation_year" type="number" min={1900} max={2100} step={1}
+                {...register("graduation_year")}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+              {errors.graduation_year && <p className="text-xs text-red-500 mt-1">{errors.graduation_year.message}</p>}
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="active_backlogs" className="text-xs font-medium text-slate-500">Active Backlogs</label>
+              <input id="active_backlogs" type="number" min={0} step={1}
+                {...register("active_backlogs")}
+                className="w-full rounded-md border border-slate-300 bg-white px-3 py-2.5 text-sm" />
+              {errors.active_backlogs && <p className="text-xs text-red-500 mt-1">{errors.active_backlogs.message}</p>}
+              <p className="text-xs text-slate-500">Enter 0 if you have no active backlogs.</p>
             </div>
           </div>
         </section>

@@ -1,7 +1,6 @@
-/* eslint-disable @typescript-eslint/no-explicit-any, react-hooks/exhaustive-deps, react-hooks/set-state-in-effect */
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
 import { DriveStatusType } from "@/components/drives/DriveCard";
@@ -32,46 +31,73 @@ export default function DriveWorkspacePage() {
   const { id } = useParams() as { id: string };
   const router = useRouter();
   
-  const [drive, setDrive] = useState<any>(null);
-  const [snapshot, setSnapshot] = useState<any>(null);
+  const [drive, setDrive] = useState<DriveResponse | null>(null);
+  const [snapshot, setSnapshot] = useState<SnapshotDetailResponse | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isActioning, setIsActioning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<"analysis" | "candidates">("analysis");
 
-  const loadData = async () => {
-    setIsLoading(true);
-    setError(null);
+  const refreshData = useCallback(async () => {
+    if (!id) return;
     try {
       const driveData = await fetchApi<DriveResponse>(`/api/v1/drives/${id}`);
       setDrive(driveData);
 
-      // If it's ready or published, try to fetch the snapshot
       if (driveData.status === "ready" || driveData.status === "published") {
         try {
           const snapshotData = await fetchApi<SnapshotDetailResponse>(`/api/v1/drives/${id}/snapshots/latest`);
           setSnapshot(snapshotData);
         } catch (snapErr) {
           console.error("Failed to load snapshot:", snapErr);
-          // Don't fail the whole page if snapshot is missing, just log it
         }
       }
-    } catch (err: any) {
-      setError(err.message || "Failed to load drive workspace.");
-    } finally {
-      setIsLoading(false);
+    } catch (err: unknown) {
+      console.error("Failed to refresh drive:", err);
     }
-  };
+  }, [id]);
 
   useEffect(() => {
-    if (id) {
-      loadData();
+    let isCancelled = false;
+
+    async function loadInitialData() {
+      if (!id) return;
+      setIsLoading(true);
+      setError(null);
+      try {
+        const driveData = await fetchApi<DriveResponse>(`/api/v1/drives/${id}`);
+        if (isCancelled) return;
+        setDrive(driveData);
+
+        if (driveData.status === "ready" || driveData.status === "published") {
+          try {
+            const snapshotData = await fetchApi<SnapshotDetailResponse>(`/api/v1/drives/${id}/snapshots/latest`);
+            if (!isCancelled) setSnapshot(snapshotData);
+          } catch (snapErr) {
+            console.error("Failed to load snapshot:", snapErr);
+          }
+        }
+      } catch (err: unknown) {
+        if (!isCancelled) {
+          setError(err instanceof Error ? err.message : "Failed to load drive workspace.");
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoading(false);
+        }
+      }
     }
+
+    loadInitialData();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [id]);
 
   // Poll for status updates if the drive is currently analyzing
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: NodeJS.Timeout | undefined;
     
     if (drive?.status === "analyzing") {
       interval = setInterval(async () => {
@@ -79,7 +105,7 @@ export default function DriveWorkspacePage() {
           const driveData = await fetchApi<DriveResponse>(`/api/v1/drives/${id}`);
           if (driveData.status !== "analyzing") {
             // Status changed! Reload full data to get snapshot or failure state
-            loadData();
+            refreshData();
           }
         } catch (err) {
           console.error("Polling error:", err);
@@ -90,15 +116,15 @@ export default function DriveWorkspacePage() {
     return () => {
       if (interval) clearInterval(interval);
     };
-  }, [drive?.status, id]);
+  }, [drive?.status, id, refreshData]);
 
   const handleStartAnalysis = async () => {
     setIsActioning(true);
     try {
       await fetchApi(`/api/v1/drives/${id}/analyze`, { method: "POST" });
-      await loadData(); // Reload to get new status
-    } catch (err: any) {
-      alert(`Analysis failed to start: ${err.message}`);
+      await refreshData(); // Reload to get new status
+    } catch (err: unknown) {
+      alert(err instanceof Error ? `Analysis failed to start: ${err.message}` : "Analysis failed to start");
     } finally {
       setIsActioning(false);
     }
@@ -108,9 +134,9 @@ export default function DriveWorkspacePage() {
     setIsActioning(true);
     try {
       await fetchApi(`/api/v1/drives/${id}/cancel-analysis`, { method: "POST" });
-      await loadData();
-    } catch (err: any) {
-      alert(`Failed to cancel analysis: ${err.message}`);
+      await refreshData();
+    } catch (err: unknown) {
+      alert(err instanceof Error ? `Failed to cancel analysis: ${err.message}` : "Failed to cancel analysis");
     } finally {
       setIsActioning(false);
     }
@@ -125,8 +151,8 @@ export default function DriveWorkspacePage() {
         body: JSON.stringify({ status: "published" })
       });
       router.push("/admin/drives/published");
-    } catch (err: any) {
-      alert(`Publish failed: ${err.message}`);
+    } catch (err: unknown) {
+      alert(err instanceof Error ? `Publish failed: ${err.message}` : "Publish failed");
       setIsActioning(false);
     }
   };

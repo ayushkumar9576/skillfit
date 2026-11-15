@@ -12,7 +12,8 @@ import {
   CheckCircle2, 
   XCircle, 
   Sparkles,
-  Info
+  Info,
+  AlertTriangle
 } from "lucide-react";
 import { DimensionBreakdown } from "@/lib/api/matching";
 
@@ -28,6 +29,8 @@ interface DetailedScoreBreakdownModalProps {
   dimensionBreakdown?: DimensionBreakdown[];
   strengths: string[];
   gaps: string[];
+  isEligible?: boolean;
+  eligibilityReasons?: string[];
 }
 
 const DIMENSION_CONFIG: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; bg: string; border: string }> = {
@@ -86,7 +89,9 @@ export default function DetailedScoreBreakdownModal({
   narrative,
   dimensionBreakdown = [],
   strengths,
-  gaps
+  gaps,
+  isEligible,
+  eligibilityReasons
 }: DetailedScoreBreakdownModalProps) {
   if (!isOpen) return null;
 
@@ -111,6 +116,17 @@ export default function DetailedScoreBreakdownModal({
         <div className="p-6 sm:p-7 border-b border-slate-100 bg-gradient-to-r from-slate-50 via-white to-indigo-50/30 flex items-start justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-2.5 flex-wrap">
+              {isEligible === false ? (
+                <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wider border bg-rose-100 text-rose-800 border-rose-300 flex items-center gap-1">
+                  <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                  NOT ELIGIBLE
+                </span>
+              ) : (
+                <span className="px-3 py-1 rounded-full text-xs font-bold tracking-wider border bg-emerald-50 text-emerald-700 border-emerald-300 flex items-center gap-1">
+                  <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                  ACADEMICALLY ELIGIBLE
+                </span>
+              )}
               <span className={`px-3 py-1 rounded-full text-xs font-bold tracking-wider border ${tierColors}`}>
                 {cleanTier} MATCH
               </span>
@@ -143,6 +159,25 @@ export default function DetailedScoreBreakdownModal({
 
         {/* Modal Scrollable Body */}
         <div className="p-6 sm:p-8 space-y-7 overflow-y-auto">
+          {/* Academic Eligibility Banner */}
+          {isEligible === false && (
+            <div className="p-4 rounded-2xl bg-rose-50 border border-rose-200/80 text-rose-900 space-y-1.5">
+              <div className="flex items-center gap-2 font-semibold text-rose-800 text-sm">
+                <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                Academic Eligibility Criteria Not Met
+              </div>
+              <ul className="list-disc list-inside space-y-1 text-xs text-rose-700 pl-1">
+                {eligibilityReasons && eligibilityReasons.length > 0 ? (
+                  eligibilityReasons.map((reason, idx) => (
+                    <li key={idx}>{reason}</li>
+                  ))
+                ) : (
+                  <li>Does not meet mandatory academic qualification criteria for this drive.</li>
+                )}
+              </ul>
+            </div>
+          )}
+
           {/* Executive Narrative */}
           <div className="bg-indigo-50/70 border border-indigo-100 p-4 sm:p-5 rounded-2xl flex items-start gap-3.5">
             <Sparkles className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />

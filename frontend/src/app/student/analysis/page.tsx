@@ -247,7 +247,7 @@ export default function AnalysisDashboardPage() {
 
   // State G: Completed & Loaded - Full Dashboard
   const readinessResult = {
-    readiness_level: profile.findings?.some(f => f.severity === 'CRITICAL' || f.severity === 'HIGH') ? "NEEDS_IMPROVEMENT" : "READY",
+    readiness_level: profile.readiness_level || "UNKNOWN",
     summary_text: profile.summary?.readiness_highlights?.join(" ") || "Profile analysis complete.",
     strength_areas: profile.findings?.filter(f => f.type === 'STRENGTH').map(f => f.title) || [],
     improvement_areas: profile.findings?.filter(f => f.type !== 'STRENGTH').map(f => f.title) || []

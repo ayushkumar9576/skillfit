@@ -142,6 +142,9 @@ export function mapCandidateProfile(raw: any): CandidateIntelligenceProfile {
   };
 
   return {
+    readiness_level: ["HIGH", "MEDIUM", "LOW"].includes(raw.readiness_level) ? raw.readiness_level : null,
+    readiness_score: typeof raw.readiness_score === "number" ? raw.readiness_score : null,
+    readiness_status: ["SUCCESS", "PARTIAL", "FAILED"].includes(raw.readiness_status) ? raw.readiness_status : null,
     technologies,
     competencies,
     domains,
