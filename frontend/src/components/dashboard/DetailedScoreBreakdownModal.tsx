@@ -1,6 +1,7 @@
 "use client";
 
 import React from "react";
+import Link from "next/link";
 import { 
   X, 
   Code2, 
@@ -13,7 +14,8 @@ import {
   XCircle, 
   Sparkles,
   Info,
-  AlertTriangle
+  AlertTriangle,
+  FileText
 } from "lucide-react";
 import { DimensionBreakdown } from "@/lib/api/matching";
 
@@ -31,6 +33,7 @@ interface DetailedScoreBreakdownModalProps {
   gaps: string[];
   isEligible?: boolean;
   eligibilityReasons?: string[];
+  detailedReportHref?: string;
 }
 
 const DIMENSION_CONFIG: Record<string, { label: string; icon: React.ComponentType<{ className?: string }>; color: string; bg: string; border: string }> = {
@@ -91,7 +94,8 @@ export default function DetailedScoreBreakdownModal({
   strengths,
   gaps,
   isEligible,
-  eligibilityReasons
+  eligibilityReasons,
+  detailedReportHref
 }: DetailedScoreBreakdownModalProps) {
   if (!isOpen) return null;
 
@@ -332,7 +336,16 @@ export default function DetailedScoreBreakdownModal({
         </div>
 
         {/* Modal Footer */}
-        <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-100 flex items-center justify-end">
+        <div className="p-4 sm:p-5 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-end gap-3">
+          {detailedReportHref && (
+            <Link
+              href={detailedReportHref}
+              className="inline-flex items-center gap-2 px-5 py-2.5 text-sm font-semibold text-white bg-indigo-600 rounded-xl hover:bg-indigo-700 transition-colors shadow-xs focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+            >
+              <FileText className="h-4 w-4" aria-hidden="true" />
+              See Detailed Report
+            </Link>
+          )}
           <button
             onClick={onClose}
             className="px-5 py-2.5 text-sm font-semibold text-slate-700 bg-white border border-slate-200 rounded-xl hover:bg-slate-50 hover:border-slate-300 transition-all shadow-xs cursor-pointer"

@@ -791,21 +791,27 @@ def list_snapshots(
 def get_latest_snapshot(
     drive_id: UUID,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles(UserRole.admin, UserRole.faculty)),
+    user: User = Depends(require_roles(UserRole.admin, UserRole.faculty, UserRole.student)),
 ):
     """
     Retrieve the most recent Drive Intelligence snapshot for a drive.
-    Returns 404 if no snapshots exist.
+    Students can read reports only for published drives. Returns 404 if no
+    accessible snapshot exists; analysis history remains restricted to staff.
     """
     from sqlalchemy import desc
+    from app.models.drive import Drive
     from app.models.drive_snapshot import DriveSnapshotModel
 
-    snapshot = (
+    query = (
         db.query(DriveSnapshotModel)
         .filter(DriveSnapshotModel.drive_id == drive_id)
-        .order_by(desc(DriveSnapshotModel.created_at))
-        .first()
     )
+    if user.role == UserRole.student:
+        query = query.join(Drive, DriveSnapshotModel.drive_id == Drive.id).filter(
+            Drive.status == DriveStatus.published
+        )
+
+    snapshot = query.order_by(desc(DriveSnapshotModel.created_at), desc(DriveSnapshotModel.id)).first()
     if not snapshot:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,

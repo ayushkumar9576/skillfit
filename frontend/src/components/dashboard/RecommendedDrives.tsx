@@ -156,6 +156,7 @@ export default function RecommendedDrives() {
           gaps={selectedDrive.gaps}
           isEligible={selectedDrive.is_eligible}
           eligibilityReasons={selectedDrive.eligibility_reasons}
+          detailedReportHref={`/student/placement/${selectedDrive.drive_id}`}
         />
       )}
     </>
