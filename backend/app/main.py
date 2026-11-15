@@ -1,6 +1,7 @@
 import logging
 from dotenv import load_dotenv
-load_dotenv()  # Must run before any module that reads os.getenv (security.py, database.py)
+from pathlib import Path
+load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 
 # Configure global logging level to INFO so that logger.info statements are visible
 logging.basicConfig(level=logging.INFO)

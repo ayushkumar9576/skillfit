@@ -1,12 +1,22 @@
 from typing import List, Tuple
-from sqlalchemy.orm import Session
+from sqlalchemy import select
+from sqlalchemy.orm import Session, aliased
 
 from app.matching.models.result import MatchResult
 from app.models.candidate_vector import CandidateVectorModel
 from app.models.drive_vector import DriveVectorModel
+from app.models.resume_file import ResumeFile
+from app.models.student import Student
+from app.models.user import User
+from app.core.enums import ProcessingStatus
 from app.matching.services.vector_persistence_service import VectorPersistenceService
 from app.matching.similarity.matching_engine import match
 import uuid
+
+
+class MatchingNotReadyError(ValueError):
+    """The selected resume does not yet have matching data."""
+
 
 class RecommendationService:
     @staticmethod
@@ -23,7 +33,7 @@ class RecommendationService:
             
         candidate_vector = VectorPersistenceService.get_candidate_vector(db, resume_uuid)
         if not candidate_vector:
-            raise ValueError("Candidate Vector not found.")
+            raise MatchingNotReadyError("Candidate Vector not found.")
             
         # Avoid N+1, load drive vectors
         query = db.query(DriveVectorModel).filter(DriveVectorModel.schema_version == candidate_vector.schema_version)
@@ -83,7 +93,26 @@ class RecommendationService:
         if not drive_vector:
             raise ValueError("Drive Vector not found.")
             
-        candidate_vectors = db.query(CandidateVectorModel).filter(CandidateVectorModel.schema_version == drive_vector.schema_version).all()
+        latest = aliased(ResumeFile)
+        latest_active_id = (
+            select(latest.id)
+            .where(latest.student_id == ResumeFile.student_id, latest.is_active.is_(True))
+            .order_by(latest.created_at.desc(), latest.id.desc())
+            .limit(1).correlate(ResumeFile).scalar_subquery()
+        )
+        candidate_vectors = (
+            db.query(CandidateVectorModel)
+            .join(ResumeFile, CandidateVectorModel.resume_id == ResumeFile.id)
+            .join(Student, ResumeFile.student_id == Student.id)
+            .join(User, Student.user_id == User.id)
+            .filter(
+                CandidateVectorModel.schema_version == drive_vector.schema_version,
+                ResumeFile.is_active.is_(True),
+                ResumeFile.processing_status == ProcessingStatus.completed,
+                ResumeFile.id == latest_active_id,
+                User.is_active.is_(True),
+            ).all()
+        )
         if not candidate_vectors:
             return []
             

@@ -301,3 +301,5 @@ class UserResponseSchema(BaseModel):
         default=None,
         description="Academic department (Faculty only).",
     )
+    graduation_year: Optional[int] = None
+    active_backlogs: Optional[int] = None

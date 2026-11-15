@@ -1,6 +1,5 @@
 fastapi
 uvicorn
-openpyxl
 
 # Email validation — required for Pydantic's EmailStr (Pydantic v2 requires >= 2.0.0)
 email-validator
@@ -14,9 +13,33 @@ python-jose[cryptography]
 # .env loading — already used in app/db/database.py, made explicit here
 python-dotenv
 
-# Database migrations
+# Database driver & migrations
+psycopg2-binary
 alembic
 
 # Rate limiting
 slowapi
- 
+
+# Multipart form data — required by FastAPI for file upload endpoints (Phase 3.2)
+python-multipart
+
+# Phase 3.2.1 – File Security Hardening
+# MIME type detection via libmagic (Windows binary included)
+python-magic-bin
+
+# PDF parsing — validates PDF integrity at upload; reused in Phase 3.3 text extraction
+pdfplumber
+
+# DOCX parsing — validates DOCX integrity at upload; reused in Phase 3.3 text extraction
+python-docx
+
+# Phase 3.6 – LLM Integration Layer
+# Official OpenAI Python SDK (async client + structured JSON output).
+# Requires >= 1.0 — the 0.x SDK exposed an incompatible API surface.
+openai>=1.0
+
+# Official Google GenAI SDK (Phase 3.6.1 Gemini integration)
+google-genai
+
+# Excel parsing (Bulk Import Phase)
+openpyxl

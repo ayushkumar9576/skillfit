@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.analysis.models.candidate_profile import CandidateIntelligenceProfile
 from app.analysis.serialization.profile_serializer import ProfileSerializer
 from app.models.candidate_intelligence_snapshot import CandidateIntelligenceSnapshotModel
+from app.services.readiness_service import populate_readiness
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,9 @@ def get_profile(
     if not snapshot:
         return None
     try:
-        return ProfileSerializer.from_snapshot_payload(snapshot.profile_json)
+        profile = ProfileSerializer.from_snapshot_payload(snapshot.profile_json)
+        populate_readiness(profile, str(resume_id))
+        return profile
     except Exception as exc:
         logger.error(
             "Failed to deserialize snapshot for resume_id=%s: %s",

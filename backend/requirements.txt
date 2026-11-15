@@ -13,7 +13,8 @@ python-jose[cryptography]
 # .env loading — already used in app/db/database.py, made explicit here
 python-dotenv
 
-# Database migrations
+# Database driver & migrations
+psycopg2-binary
 alembic
 
 # Rate limiting

@@ -67,7 +67,7 @@ from app.schemas.resume_analysis import (
     _SAFE_SECTION_KEYS,
 )
 from app.services import resume_service
-from app.services.analysis_persistence_service import get_profile, get_latest_snapshot
+from app.services.analysis_persistence_service import get_profile
 
 router = APIRouter(prefix="/api/v1/resumes", tags=["Student — Resume & Analysis"])
 
@@ -308,16 +308,12 @@ def get_readiness(
             detail="Analysis not yet available.",
         )
 
-    # Derive readiness level from profile findings
-    critical_or_high = [f for f in profile.findings if f.severity in ("HIGH", "CRITICAL")]
-    gap_findings = [f for f in profile.findings if f.type == "MISSING_SIGNAL"]
-
-    if not critical_or_high and not gap_findings:
-        readiness_level = ReadinessLevel.placement_ready
-    elif len(critical_or_high) <= 2:
-        readiness_level = ReadinessLevel.moderately_ready
-    else:
-        readiness_level = ReadinessLevel.needs_improvement
+    # Preserve the legacy response vocabulary without recalculating readiness.
+    readiness_level = {
+        "HIGH": ReadinessLevel.placement_ready,
+        "MEDIUM": ReadinessLevel.moderately_ready,
+        "LOW": ReadinessLevel.needs_improvement,
+    }.get(profile.readiness_level)
 
     # Build strengths and weaknesses payloads from findings
     strength_items = [
@@ -721,13 +717,15 @@ def get_resume_profile(
     resume = _get_owned_resume(db, resume_id, student.id)
     _require_completed(resume)
 
-    snapshot = get_latest_snapshot(db, resume_id)
-    if not snapshot:
+    profile = get_profile(db, resume_id)
+    if profile is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Analysis snapshot not found.",
         )
 
-    # Return the 'profile' dict directly from the snapshot JSON payload
-    return snapshot.profile_json.get("profile", {})
+    # Includes canonical readiness for snapshots created before it was persisted.
+    from app.analysis.serialization.profile_serializer import ProfileSerializer
+
+    return ProfileSerializer.to_snapshot_payload(profile)["profile"]
 

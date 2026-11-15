@@ -139,10 +139,17 @@ class ProjectAnalysisEngine:
             *(self._analyze_one(index, project, llm, resume_id)
               for index, project in enumerate(result.projects))
         )
+        failed_count = sum(item is None for item in per_project)
+        if failed_count:
+            raise RuntimeError(
+                f"Project intelligence was incomplete: {failed_count} of "
+                f"{len(result.projects)} project analyses failed."
+            )
         return self._merge_results(per_project)
 
     def analyze(self, *, resume_id: str, raw_text: str) -> Dict[str, Any]:
-        return asyncio.run(self.analyze_async(resume_id=resume_id, raw_text=raw_text))
+        from app.analysis.engines.async_bridge import run_sync
+        return run_sync(lambda: self.analyze_async(resume_id=resume_id, raw_text=raw_text))
 
     def _get_llm_service(self) -> LLMService:
         if self._llm_service is None:

@@ -132,6 +132,10 @@ class OpenAIProvider(BaseLLMProvider):
                 available.
         """
         self._settings = settings or LLMSettings.from_env()
+        from threading import Lock
+        self._clients_lock = Lock()
+        self._clients_by_loop = {}
+        self._injected_client = client
 
         if client is not None:
             self._client = client
@@ -151,14 +155,10 @@ class OpenAIProvider(BaseLLMProvider):
         # the environment itself, bypassing this resolution (and turning a stray
         # whitespace value into a broken URL).
         resolved_base_url = (base_url or os.getenv("OPENAI_BASE_URL") or "").strip()
-        print("OPENAI_BASE_URL =", resolved_base_url)
         # max_retries=0: retry policy is owned by this layer, not the SDK.
-        self._client = AsyncOpenAI(
-            api_key=key,
-            base_url=resolved_base_url or DEFAULT_OPENAI_BASE_URL,
-            timeout=self._settings.timeout,
-            max_retries=0,
-        )
+        self._client_options = dict(api_key=key, base_url=resolved_base_url or DEFAULT_OPENAI_BASE_URL,
+                                    timeout=self._settings.timeout, max_retries=0)
+        self._client = AsyncOpenAI(**self._client_options)
 
         if resolved_base_url:
             # Log only the host — never the full URL — so a credential
@@ -167,6 +167,18 @@ class OpenAIProvider(BaseLLMProvider):
                 "OpenAIProvider using custom OpenAI-compatible endpoint (host=%s).",
                 urlparse(resolved_base_url).netloc or "unknown",
             )
+
+    def _get_client(self):
+        import asyncio
+        if self._injected_client is not None:
+            return self._injected_client
+        loop = asyncio.get_running_loop()
+        with self._clients_lock:
+            if loop not in self._clients_by_loop:
+                self._clients_by_loop[loop] = (
+                    self._client if not self._clients_by_loop else AsyncOpenAI(**self._client_options)
+                )
+            return self._clients_by_loop[loop]
 
     async def complete_structured(
         self,
@@ -212,7 +224,7 @@ class OpenAIProvider(BaseLLMProvider):
             print("TIMEOUT:", timeout or self._settings.timeout)
             print("=============================\n")
             print("1 - BEFORE OPENROUTER")
-            response = await self._client.chat.completions.create(**request_kwargs)
+            response = await self._get_client().chat.completions.create(**request_kwargs)
             print("OPENROUTER RESPONSE RECEIVED")
         except (
             APITimeoutError,

@@ -24,6 +24,8 @@ class RecommendedDriveResponse(BaseModel):
     gaps: List[str]
     overall_narrative: str
     dimension_breakdown: List[DimensionBreakdownDTO] = Field(default_factory=list)
+    is_eligible: bool = True
+    eligibility_reasons: List[str] = Field(default_factory=list)
 
 class RecommendedCandidateResponse(BaseModel):
     candidate_id: uuid.UUID
@@ -35,3 +37,5 @@ class RecommendedCandidateResponse(BaseModel):
     gaps: List[str]
     overall_narrative: str
     dimension_breakdown: List[DimensionBreakdownDTO] = Field(default_factory=list)
+    is_eligible: bool = True
+    eligibility_reasons: List[str] = Field(default_factory=list)

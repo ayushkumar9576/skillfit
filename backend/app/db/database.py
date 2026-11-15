@@ -1,11 +1,12 @@
 # SQLAlchemy setup, engine, and session management
 import os
+from pathlib import Path
 from dotenv import load_dotenv
 from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker, declarative_base
 
-load_dotenv()
+load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
 if not DATABASE_URL:

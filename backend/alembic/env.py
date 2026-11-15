@@ -18,10 +18,8 @@ if config.config_file_name is not None:
 # for 'autogenerate' support
 import sys
 import os
-from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
-load_dotenv()
 
 from app.db.database import Base, DATABASE_URL
 import app.models

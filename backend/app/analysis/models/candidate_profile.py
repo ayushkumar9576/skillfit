@@ -523,6 +523,11 @@ class CandidateIntelligenceProfile:
     average_project_sophistication: float = 0.0
     highest_project_sophistication: int = 0
 
+    # Readiness Engine assessment (populated by Stage 7 ReadinessEngine)
+    readiness_score: Optional[float] = None
+    readiness_level: Optional[str] = None
+    readiness_status: Optional[str] = None
+
     # Dashboard layer (derived, not set by engines directly)
     summary: CandidateSummary = field(default_factory=CandidateSummary)
 

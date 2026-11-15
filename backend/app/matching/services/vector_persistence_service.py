@@ -5,7 +5,6 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
-from sqlalchemy.dialects.postgresql import insert
 
 from app.models.candidate_intelligence_snapshot import CandidateIntelligenceSnapshotModel
 from app.models.drive_snapshot import DriveSnapshotModel
@@ -22,7 +21,9 @@ from app.matching.vectorization.schema import VECTOR_SCHEMA_VERSION
 class VectorPersistenceService:
 
     @staticmethod
-    def sync_resume_vector(db: Session, resume_id: UUID) -> Optional[CandidateVectorModel]:
+    def sync_resume_vector(
+        db: Session, resume_id: UUID, *, commit: bool = True
+    ) -> Optional[CandidateVectorModel]:
         """
         1. Fetch latest candidate snapshot
         2. Generate vector
@@ -40,34 +41,35 @@ class VectorPersistenceService:
         profile = ProfileSerializer.from_snapshot_payload(snapshot.profile_json)
         payload = CandidateVectorizer.generate(profile)
 
-        stmt = insert(CandidateVectorModel).values(
-            id=uuid.uuid4(),
-            resume_id=resume_id,
-            source_snapshot_id=snapshot.id,
-            schema_version=VECTOR_SCHEMA_VERSION,
-            vector_json=dataclasses.asdict(payload),
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
-        )
-
-        stmt = stmt.on_conflict_do_update(
-            index_elements=['resume_id', 'schema_version'],
-            set_=dict(
-                source_snapshot_id=stmt.excluded.source_snapshot_id,
-                vector_json=stmt.excluded.vector_json,
-                updated_at=datetime.now(timezone.utc)
-            )
-        )
-
-        db.execute(stmt)
-        db.commit()
-        
-        return db.query(CandidateVectorModel).filter_by(
+        vector = db.query(CandidateVectorModel).filter_by(
             resume_id=resume_id, schema_version=VECTOR_SCHEMA_VERSION
         ).first()
+        if vector is None:
+            vector = CandidateVectorModel(
+                id=uuid.uuid4(),
+                resume_id=resume_id,
+                source_snapshot_id=snapshot.id,
+                schema_version=VECTOR_SCHEMA_VERSION,
+                vector_json=dataclasses.asdict(payload),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(vector)
+        else:
+            vector.source_snapshot_id = snapshot.id
+            vector.vector_json = dataclasses.asdict(payload)
+            vector.updated_at = datetime.now(timezone.utc)
+        if commit:
+            db.commit()
+        else:
+            db.flush()
+
+        return vector
 
     @staticmethod
-    def sync_drive_vector(db: Session, drive_id: UUID) -> Optional[DriveVectorModel]:
+    def sync_drive_vector(
+        db: Session, drive_id: UUID, *, commit: bool = True
+    ) -> Optional[DriveVectorModel]:
         """
         1. Fetch latest drive snapshot
         2. Generate vector
@@ -85,31 +87,30 @@ class VectorPersistenceService:
         profile = DriveIntelligenceProfile.model_validate(snapshot.intelligence_payload)
         payload = DriveVectorizer.generate(profile)
 
-        stmt = insert(DriveVectorModel).values(
-            id=uuid.uuid4(),
-            drive_id=drive_id,
-            source_snapshot_id=snapshot.id,
-            schema_version=VECTOR_SCHEMA_VERSION,
-            vector_json=dataclasses.asdict(payload),
-            created_at=datetime.now(timezone.utc),
-            updated_at=datetime.now(timezone.utc)
-        )
-
-        stmt = stmt.on_conflict_do_update(
-            index_elements=['drive_id', 'schema_version'],
-            set_=dict(
-                source_snapshot_id=stmt.excluded.source_snapshot_id,
-                vector_json=stmt.excluded.vector_json,
-                updated_at=datetime.now(timezone.utc)
-            )
-        )
-
-        db.execute(stmt)
-        db.commit()
-
-        return db.query(DriveVectorModel).filter_by(
+        vector = db.query(DriveVectorModel).filter_by(
             drive_id=drive_id, schema_version=VECTOR_SCHEMA_VERSION
         ).first()
+        if vector is None:
+            vector = DriveVectorModel(
+                id=uuid.uuid4(),
+                drive_id=drive_id,
+                source_snapshot_id=snapshot.id,
+                schema_version=VECTOR_SCHEMA_VERSION,
+                vector_json=dataclasses.asdict(payload),
+                created_at=datetime.now(timezone.utc),
+                updated_at=datetime.now(timezone.utc),
+            )
+            db.add(vector)
+        else:
+            vector.source_snapshot_id = snapshot.id
+            vector.vector_json = dataclasses.asdict(payload)
+            vector.updated_at = datetime.now(timezone.utc)
+        if commit:
+            db.commit()
+        else:
+            db.flush()
+
+        return vector
 
     @staticmethod
     def get_candidate_vector(db: Session, resume_id: UUID) -> Optional[CandidateVectorModel]:

@@ -13,15 +13,12 @@ Phase 4.4 — Extended with evaluation intelligence consistency checks:
 """
 import logging
 from collections import defaultdict
-from typing import Set
 
 from app.analysis.drives.governance import GovernanceValidationError
 from app.analysis.drives.schemas.intelligence import DriveIntelligenceProfile
 from app.core.enums import (
-    ExperienceLevel,
     QualificationOperator,
     QualificationType,
-    TechnicalCompetencyType,
 )
 
 logger = logging.getLogger(__name__)
@@ -86,14 +83,11 @@ def _check_qualification_contradictions(profile: DriveIntelligenceProfile) -> No
 
 def _check_experience_contradictions(profile: DriveIntelligenceProfile) -> None:
     """
-    Detect if the drive requires both FRESHER and LATERAL experience levels simultaneously.
+    Validate durations without treating alternative eligible groups as contradictions.
     """
-    levels = {exp.level for exp in profile.experience_requirements}
-    if ExperienceLevel.fresher in levels and ExperienceLevel.lateral in levels:
-        logger.error("Experience contradiction detected: both FRESHER and LATERAL extracted.")
-        raise GovernanceValidationError(
-            "Contradictory intelligence: Drive cannot require both FRESHER and LATERAL experience."
-        )
+    for experience in profile.experience_requirements:
+        if experience.min_months is not None and experience.min_months < 0:
+            raise GovernanceValidationError("Experience duration cannot be negative.")
 
 
 

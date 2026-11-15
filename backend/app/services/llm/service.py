@@ -29,11 +29,12 @@ Dependency injection:
 
 import json
 import logging
+from threading import Lock
 from typing import Any, Optional, Type
 
 from pydantic import BaseModel
 
-from app.services.llm.base import BaseLLMProvider, get_llm_provider
+from app.services.llm.base import BaseLLMProvider, LLMCompletion, get_llm_provider
 from app.services.llm.config import LLMSettings
 from app.services.llm.prompt_manager import PromptManager, default_prompt_manager
 from app.services.llm.retry import with_retry
@@ -122,6 +123,21 @@ class LLMService:
 
         user_content = json.dumps(data, ensure_ascii=False, default=str)
 
+        completion = await self.complete(
+            analyzer=analyzer, system_prompt=system_prompt, user_content=user_content,
+            response_schema=response_schema, model=model, temperature=temperature,
+            max_tokens=max_tokens, timeout=timeout,
+        )
+        return completion.parsed
+
+    async def complete(
+        self, *, analyzer: str, system_prompt: str, user_content: str,
+        response_schema: Type[BaseModel], model: Optional[str] = None,
+        temperature: float = 0.0, max_tokens: Optional[int] = None,
+        timeout: Optional[float] = None,
+    ) -> LLMCompletion:
+        """Shared retry and accounting path, including custom versioned drive prompts."""
+        schema_name = getattr(response_schema, "__name__", str(response_schema))
         completion = await with_retry(
             lambda: self._provider.complete_structured(
                 system_prompt=system_prompt,
@@ -149,7 +165,7 @@ class LLMService:
             total_tokens=completion.usage.total_tokens,
         )
 
-        return completion.parsed
+        return completion
 
 
 # ---------------------------------------------------------------------------
@@ -160,6 +176,7 @@ class LLMService:
 # require a key, breaking app boot / existing tests). It is built on first use.
 
 _llm_service: Optional[LLMService] = None
+_llm_service_lock = Lock()
 
 
 def get_llm_service() -> LLMService:
@@ -171,5 +188,7 @@ def get_llm_service() -> LLMService:
             ``OPENAI_API_KEY``) when the service is first built.
     """
     global _llm_service
-    _llm_service = LLMService()
+    with _llm_service_lock:
+        if _llm_service is None:
+            _llm_service = LLMService()
     return _llm_service

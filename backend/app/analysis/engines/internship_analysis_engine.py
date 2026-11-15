@@ -167,6 +167,13 @@ class InternshipAnalysisEngine:
         )
         self._log_output_cost(llm, usage_offset, resume_id)
 
+        failed_count = sum(item is None for item in per_internship)
+        if failed_count:
+            raise RuntimeError(
+                f"Internship intelligence was incomplete: {failed_count} of "
+                f"{len(internships)} internship analyses failed."
+            )
+
         for intel in per_internship:
             if intel is None:
                 continue
@@ -184,7 +191,8 @@ class InternshipAnalysisEngine:
         return result
 
     def analyze(self, *, resume_id: str, internships: List[Any]) -> InternshipAnalysisResult:
-        return asyncio.run(self.analyze_async(resume_id=resume_id, internships=internships))
+        from app.analysis.engines.async_bridge import run_sync
+        return run_sync(lambda: self.analyze_async(resume_id=resume_id, internships=internships))
 
     def _get_llm_service(self) -> LLMService:
         if self._llm_service is None:

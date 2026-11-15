@@ -98,9 +98,8 @@ class CertificationAnalysisEngine:
     def analyze(
         self, *, resume_id: str, certifications: List[Any]
     ) -> CertificationAnalysisResult:
-        return asyncio.run(
-            self.analyze_async(resume_id=resume_id, certifications=certifications)
-        )
+        from app.analysis.engines.async_bridge import run_sync
+        return run_sync(lambda: self.analyze_async(resume_id=resume_id, certifications=certifications))
 
     async def analyze_async(
         self, *, resume_id: str, certifications: List[Any]
@@ -138,6 +137,13 @@ class CertificationAnalysisEngine:
                 logger.error("Unhandled exception in certification batch: %s", str(br), exc_info=br)
             elif br:
                 result.intelligence.extend(br)
+
+        if len(result.intelligence) != len(certifications):
+            raise RuntimeError(
+                "Certification intelligence was incomplete: "
+                f"{len(result.intelligence)} of {len(certifications)} certifications "
+                "were analyzed successfully."
+            )
 
         logger.info(
             "Certification analysis complete for resume %s: %d/%d processed.",

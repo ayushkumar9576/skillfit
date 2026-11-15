@@ -85,7 +85,7 @@ class Evidence(BaseModel):
 
     source_text: str = Field(
         ...,
-        min_length=15,
+        min_length=1,
         description="Verbatim or close-paraphrase quote from the JD.",
     )
     evidence_type: EvidenceType = Field(
@@ -100,6 +100,14 @@ class Evidence(BaseModel):
         default=EvidenceSection.other,
         description="JD section where this evidence was found.",
     )
+
+    @field_validator("source_text")
+    @classmethod
+    def _nonempty_quote(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Evidence quote cannot be blank.")
+        return value
 
     @field_validator("source_section", mode="before")
     @classmethod
@@ -576,7 +584,7 @@ class ShiftIntelligence(BaseModel):
 
 class ExperienceIntelligence(BaseModel):
     level: ExperienceLevel = Field(..., description="Expected candidate experience level.")
-    min_months: Optional[int] = Field(default=None, description="Minimum months of experience if applicable.")
+    min_months: Optional[int] = Field(default=None, ge=0, description="Minimum months of experience if applicable.")
     evidence: List[Evidence] = Field(..., min_length=1, description="Evidence supporting experience level.")
 
     model_config = {"use_enum_values": True}
@@ -828,7 +836,7 @@ class DriveIntelligenceProfile(BaseModel):
     )
     experience_requirements: List[ExperienceIntelligence] = Field(
         default_factory=list,
-        description="Expected experience level and duration.",
+        description="Accepted experience levels and durations. Multiple entries may represent alternative eligible groups, such as freshers or laterals.",
     )
     compensation: List[CompensationIntelligence] = Field(
         default_factory=list,

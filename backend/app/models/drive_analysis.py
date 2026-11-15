@@ -15,6 +15,7 @@ Lifecycle:
     COMPLETED → Engine succeeded; associated DriveSnapshot has been created.
     FAILED    → Engine or Governance Layer raised an unrecoverable error;
                 no snapshot was created. error_message captures the reason.
+    CANCELLED → An administrator stopped the run; no snapshot is created.
 
 Relationship to other models:
     Drive (1) ──< DriveAnalysis (M)

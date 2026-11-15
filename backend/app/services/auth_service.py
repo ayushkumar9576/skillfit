@@ -77,6 +77,8 @@ def _build_user_response(user: User) -> UserResponseSchema:
     cgpa = None
     phone = None
     department = None
+    graduation_year = None
+    active_backlogs = None
 
     if user.role == UserRole.student and user.student:
         profile_completed = user.student.profile_completed
@@ -86,6 +88,8 @@ def _build_user_response(user: User) -> UserResponseSchema:
         branch = user.student.branch
         cgpa = user.student.cgpa
         phone = user.student.phone
+        graduation_year = user.student.graduation_year
+        active_backlogs = user.student.active_backlogs
     elif user.role == UserRole.faculty and user.faculty:
         profile_completed = user.faculty.profile_completed
         department = user.faculty.department
@@ -108,6 +112,8 @@ def _build_user_response(user: User) -> UserResponseSchema:
         cgpa=cgpa,
         phone=phone,
         department=department,
+        graduation_year=graduation_year,
+        active_backlogs=active_backlogs,
     )
 
 

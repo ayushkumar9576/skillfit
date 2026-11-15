@@ -110,15 +110,17 @@ def _get_owned_resume_or_404(
     return resume
 
 
-def _replace_existing_resume(db: Session, student_id: int, resume_type: ResumeType) -> None:
+def _replace_existing_resume(
+    db: Session, student_id: int, resume_type: ResumeType
+) -> str | None:
     """
     Delete any existing active resume of the given type for this student.
 
     Called before inserting the new resume record. This implements the
     automatic replacement behavior:
-        - Deletes the physical file from disk (safe — logs if missing).
         - Deletes the database record.
         - Does NOT commit — the caller owns the transaction.
+        - Returns the old file path so it can be deleted only after commit.
 
     If no existing resume of this type is found, this is a safe no-op.
 
@@ -137,7 +139,7 @@ def _replace_existing_resume(db: Session, student_id: int, resume_type: ResumeTy
         .first()
     )
     if existing is None:
-        return
+        return None
 
     logger.info(
         "Replacing existing %s resume: resume_id=%s student_id=%s",
@@ -146,8 +148,7 @@ def _replace_existing_resume(db: Session, student_id: int, resume_type: ResumeTy
         student_id,
     )
 
-    # Delete physical file first (safe — logs on missing)
-    safe_delete_file(existing.file_path)
+    old_file_path = existing.file_path
 
     # Delete database record — FK CASCADE removes linked cv_analysis, snapshots, etc.
     db.delete(existing)
@@ -160,6 +161,7 @@ def _replace_existing_resume(db: Session, student_id: int, resume_type: ResumeTy
         resume_type.value,
         existing.id,
     )
+    return old_file_path
 
 
 # ---------------------------------------------------------------------------
@@ -366,17 +368,14 @@ async def upload_resume(
             ),
         )
 
-    # 11. Replace existing resume of this type (if one exists)
-    _replace_existing_resume(db, student.id, resume_type)
-
-    # 12. Generate safe storage filename
+    # 11. Generate safe storage filename
     storage_filename = generate_storage_filename(extension)
 
-    # 13. Ensure upload directory exists
+    # 12. Ensure upload directory exists
     upload_dir = ensure_upload_directory(UPLOAD_DIR)
     file_path = os.path.join(upload_dir, storage_filename)
 
-    # 14. Write file to disk
+    # 13. Write the new file before changing the existing database record.
     try:
         with open(file_path, "wb") as f:
             f.write(file_bytes)
@@ -410,10 +409,13 @@ async def upload_resume(
         processing_status=ProcessingStatus.uploaded,
         # extracted_text is intentionally NOT populated here — pipeline handles it
     )
-    db.add(resume)
+    old_file_path: str | None = None
 
-    # 16. Commit transaction (DB unique constraint is the last safety net)
+    # 16. Stage the replacement and insert in one transaction. The old physical
+    # file remains available until this transaction has committed successfully.
     try:
+        old_file_path = _replace_existing_resume(db, student.id, resume_type)
+        db.add(resume)
         db.commit()
     except IntegrityError:
         db.rollback()
@@ -431,6 +433,20 @@ async def upload_resume(
                 "Please upload a different or updated version."
             ),
         )
+    except Exception:
+        db.rollback()
+        safe_delete_file(file_path)
+        logger.exception(
+            "Failed to commit resume replacement for student %s; new file removed.",
+            student.id,
+        )
+        raise
+
+    # The database now points at the new file. It is finally safe to remove the
+    # replaced file; a deletion failure is logged by safe_delete_file and does
+    # not invalidate the successful upload.
+    if old_file_path:
+        safe_delete_file(old_file_path)
 
     db.refresh(resume)
     logger.info(

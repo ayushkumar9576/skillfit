@@ -34,10 +34,13 @@ def get_student_dashboard(
     if not student:
         raise HTTPException(status_code=404, detail="Student profile not found")
 
-    # Get latest resume
+    # Get latest active resume deterministically
     resume = (
         db.query(ResumeFile)
-        .filter(ResumeFile.student_id == student.id)
+        .filter(
+            ResumeFile.student_id == student.id,
+            ResumeFile.is_active == True,
+        )
         .order_by(ResumeFile.created_at.desc())
         .first()
     )
@@ -62,21 +65,7 @@ def get_student_dashboard(
                 data["internships_count"] = profile.metadata.total_internships_analyzed
                 data["certifications_count"] = profile.metadata.total_certifications_analyzed
 
-                # Derive readiness level from profile findings
-                critical_or_high = [
-                    f for f in profile.findings
-                    if f.severity in ("HIGH", "CRITICAL")
-                ]
-                gap_findings = [
-                    f for f in profile.findings
-                    if f.type == "MISSING_SIGNAL"
-                ]
-                if not critical_or_high and not gap_findings:
-                    data["readiness_level"] = "placement_ready"
-                elif len(critical_or_high) <= 2:
-                    data["readiness_level"] = "moderately_ready"
-                else:
-                    data["readiness_level"] = "needs_improvement"
+                data["readiness_level"] = profile.readiness_level
 
     return StudentDashboardSchema(**data)
 

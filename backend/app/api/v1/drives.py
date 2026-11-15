@@ -39,12 +39,13 @@ from uuid import UUID
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
-from datetime import date
+from datetime import date, datetime, timezone
 
 from app.analysis.engines.executor import AnalysisExecutor
 
 from app.api.deps import get_db, require_roles
-from app.core.enums import DriveStatus, UserRole
+from app.core.enums import DriveAnalysisStatus, DriveStatus, UserRole
+from app.models.drive_analysis import DriveAnalysis
 from app.core.security.scanner import ScanError
 from app.models.user import User
 from app.schemas.drive_schemas import (
@@ -634,18 +635,20 @@ async def analyze_drive(
         drive_id,
         prompt_version=body.prompt_version,
     )
+    was_created = getattr(analysis, "_was_created", False)
     
     # Transition the drive to analyzing state
     drive = drive_service.get_drive(db, drive_id)
-    if drive and drive.status in [DriveStatus.draft, DriveStatus.analysis_failed, DriveStatus.ready]:
+    if was_created and drive and drive.status in [DriveStatus.draft, DriveStatus.analysis_failed, DriveStatus.ready, DriveStatus.published]:
         drive.status = DriveStatus.analyzing
         
     db.commit()
     db.refresh(analysis)
 
     # 2. Handoff to executor abstraction
-    executor = AnalysisExecutor(background_tasks)
-    executor.submit_analysis(analysis.id)
+    if was_created:
+        executor = AnalysisExecutor(background_tasks)
+        executor.submit_analysis(analysis.id)
 
     # 3. Return 202 ACCEPTED immediately
     return AnalysisResponse.model_validate(analysis)
@@ -662,8 +665,8 @@ def cancel_analysis(
     _: User = Depends(require_roles(UserRole.admin)),
 ):
     """
-    Cancel an ongoing drive intelligence analysis by marking the drive status as analysis_failed.
-    This allows the user to easily restart a stuck or unwanted analysis.
+    Cancel the latest pending or running drive analysis. The executing worker
+    observes the durable status even when it is in a different process.
     """
     drive = drive_service.get_drive(db, drive_id)
     if not drive:
@@ -672,12 +675,41 @@ def cancel_analysis(
             detail=f"Drive {drive_id} not found.",
         )
         
-    if drive.status == DriveStatus.analyzing:
-        drive.status = DriveStatus.analysis_failed
-        db.commit()
-        return {"message": "Analysis cancelled and marked as failed."}
-    
-    return {"message": "Drive is not currently analyzing."}
+    analysis = (
+        db.query(DriveAnalysis)
+        .filter(
+            DriveAnalysis.drive_id == drive_id,
+            DriveAnalysis.status.in_([
+                DriveAnalysisStatus.pending.value,
+                DriveAnalysisStatus.running.value,
+            ]),
+        )
+        .order_by(DriveAnalysis.created_at.desc())
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+    if analysis is None:
+        db.rollback()
+        return {"message": "Drive has no pending or running analysis."}
+
+    analysis.status = DriveAnalysisStatus.cancelled.value
+    analysis.failed_at = datetime.now(timezone.utc)
+    analysis.error_message = "Cancelled by administrator."
+    analysis.processing_metadata = {
+        **(analysis.processing_metadata or {}),
+        "failure_reason": "CANCELLED_BY_ADMIN",
+        "cancelled_at": datetime.now(timezone.utc).isoformat(),
+    }
+    drive.status = DriveStatus.analysis_failed
+    db.commit()
+
+    task_cancelled = AnalysisExecutor.cancel_analysis(analysis.id)
+    return {
+        "message": "Analysis cancelled.",
+        "analysis_id": str(analysis.id),
+        "task_cancel_requested": task_cancelled,
+    }
 
 
 @router.get(

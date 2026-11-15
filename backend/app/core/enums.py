@@ -188,11 +188,13 @@ class DriveAnalysisStatus(str, enum.Enum):
         running   → Intelligence Engine is actively processing.
         completed → Engine ran successfully; DriveSnapshot was created.
         failed    → Engine or Governance Layer raised an unrecoverable error.
+        cancelled → An administrator cancelled the execution.
     """
     pending   = "pending"
     running   = "running"
     completed = "completed"
     failed    = "failed"
+    cancelled = "cancelled"
 
 
 class TechnologyCategory(str, enum.Enum):

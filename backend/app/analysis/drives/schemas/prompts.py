@@ -21,7 +21,7 @@ from typing import Dict
 # Version identifier — update on every prompt change
 # ---------------------------------------------------------------------------
 
-DEFAULT_PROMPT_VERSION: str = "v2"
+DEFAULT_PROMPT_VERSION: str = "v3"
 
 
 # ---------------------------------------------------------------------------
@@ -191,6 +191,16 @@ Return only the JSON object conforming to the DriveIntelligenceProfile schema. N
 # Prompt Registry — maps version string to (system, user) tuple
 # ---------------------------------------------------------------------------
 
+# Preserve historical v2 for replay; v3 accepts concise evidence and alternative
+# eligible experience groups without changing prior prompt provenance.
+DRIVE_INTELLIGENCE_PROMPT_V3_SYSTEM: str = DRIVE_INTELLIGENCE_PROMPT_V2_SYSTEM.replace(
+    "   - **IMPORTANT**: The `source_text` MUST be at least 15 characters long. If the relevant quote is too short, include the surrounding sentence.",
+    '   - `source_text` must be a nonempty, relevant quote. Concise phrases such as "Java or C++" are valid; do not pad or invent evidence to reach a length target.',
+)
+DRIVE_INTELLIGENCE_PROMPT_V3_USER: str = DRIVE_INTELLIGENCE_PROMPT_V2_USER + """
+When the JD accepts both freshers and experienced candidates, include both eligible groups in experience_requirements. These are alternatives, not contradictory requirements."""
+
+
 PROMPT_REGISTRY: Dict[str, tuple[str, str]] = {
     "v1": (
         DRIVE_INTELLIGENCE_PROMPT_V1_SYSTEM,
@@ -199,6 +209,10 @@ PROMPT_REGISTRY: Dict[str, tuple[str, str]] = {
     "v2": (
         DRIVE_INTELLIGENCE_PROMPT_V2_SYSTEM,
         DRIVE_INTELLIGENCE_PROMPT_V2_USER,
+    ),
+    "v3": (
+        DRIVE_INTELLIGENCE_PROMPT_V3_SYSTEM,
+        DRIVE_INTELLIGENCE_PROMPT_V3_USER,
     ),
 }
 

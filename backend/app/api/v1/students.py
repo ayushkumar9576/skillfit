@@ -10,8 +10,10 @@ from app.models.user import User
 from app.models.student import Student
 from app.models.resume_file import ResumeFile
 from app.models.drive import Drive
+from app.models.drive_snapshot import DriveSnapshotModel
 from app.schemas.matching import RecommendedDriveResponse, DimensionBreakdownDTO
-from app.matching.services.recommendation_service import RecommendationService
+from app.matching.services.recommendation_service import RecommendationService, MatchingNotReadyError
+from app.matching.services.eligibility_service import EligibilityService
 
 router = APIRouter(prefix="/api/v1/students", tags=["Students"])
 
@@ -31,11 +33,11 @@ def get_student_recommended_drives(
         
     student_id = student.id
             
-    # Resolve student's active resume
+    # Resolve student's active resume (latest active resume deterministically)
     active_resume = db.query(ResumeFile).filter(
         ResumeFile.student_id == student_id,
         ResumeFile.is_active == True
-    ).first()
+    ).order_by(ResumeFile.created_at.desc(), ResumeFile.id.desc()).first()
     
     if not active_resume:
         return []
@@ -46,8 +48,13 @@ def get_student_recommended_drives(
             str(active_resume.id),
             only_published=True
         )
-    except ValueError:
-        return []
+    except MatchingNotReadyError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Recommendations are not ready. Resume matching data is missing; please ask an administrator to run the resume analysis.",
+        ) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=500, detail="Recommendations could not be calculated. Please try again.") from exc
         
     if not match_results:
         return []
@@ -59,6 +66,18 @@ def get_student_recommended_drives(
         Drive.status == DriveStatus.published
     ).all()
     drive_map = {d.id: d for d in drives}
+
+    # Batch load latest Drive snapshots for academic eligibility checking
+    snapshots = (
+        db.query(DriveSnapshotModel)
+        .filter(DriveSnapshotModel.drive_id.in_(drive_ids))
+        .order_by(DriveSnapshotModel.drive_id, DriveSnapshotModel.created_at.desc())
+        .all()
+    )
+    snapshot_map = {}
+    for s in snapshots:
+        if s.drive_id not in snapshot_map:
+            snapshot_map[s.drive_id] = s
     
     response = []
     for res in match_results:
@@ -71,6 +90,12 @@ def get_student_recommended_drives(
             
         top_strengths = [s.title.replace("Strong ", "") for s in res.explanation.strengths[:3]]
         top_gaps = [g.title.replace("Missing ", "") for g in res.explanation.gaps[:3]]
+
+        # Evaluate academic eligibility without filtering out the drive
+        is_eligible, eligibility_reasons = EligibilityService.evaluate_eligibility(
+            student=student,
+            snapshot=snapshot_map.get(d_id),
+        )
 
         # Hydrate per-dimension score breakdown
         dimension_breakdown = [
@@ -99,7 +124,9 @@ def get_student_recommended_drives(
                 strengths=top_strengths,
                 gaps=top_gaps,
                 overall_narrative=res.explanation.overall_narrative,
-                dimension_breakdown=dimension_breakdown
+                dimension_breakdown=dimension_breakdown,
+                is_eligible=is_eligible,
+                eligibility_reasons=eligibility_reasons,
             )
         )
         

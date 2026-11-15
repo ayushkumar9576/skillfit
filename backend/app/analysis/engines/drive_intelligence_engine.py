@@ -23,7 +23,7 @@ Source Boundary Rule (enforced here):
 Pipeline:
     1. Retrieve versioned prompt from the prompt registry.
     2. Format the user message with drive metadata + normalized content.
-    3. Call LLMService.analyze() with DriveIntelligenceProfile as response_schema.
+    3. Call LLMService.complete() with DriveIntelligenceProfile as response_schema.
     4. Pass the Pydantic-validated profile through the Governance Layer.
     5. Return the corrected profile + governance report + provenance metadata.
 
@@ -59,7 +59,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 # Current engine version — bump on any logic change to this file
-ANALYSIS_VERSION: str = "4.4.0"
+ANALYSIS_VERSION: str = "4.4.1"
 
 _DEFAULT_MAX_TOKENS = 8192
 _DEFAULT_TEMPERATURE = 0.0
@@ -179,7 +179,8 @@ class DriveIntelligenceEngine:
 
         # Step 3: LLM call with DriveIntelligenceProfile as structured schema
         try:
-            completion = await llm_service._provider.complete_structured(
+            completion = await llm_service.complete(
+                analyzer="drive",
                 system_prompt=system_prompt,
                 user_content=user_content,
                 response_schema=DriveIntelligenceProfile,

@@ -200,17 +200,17 @@ def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
     EngineeringSignal, and Finding objects ready to be fed into the
     CandidateIntelligenceAggregator in Stage 6.
 
-    Best-effort / non-fatal: a failure here must NOT fail the whole resume.
+    A failure makes the complete analysis unreliable and aborts the pipeline.
 
     Returns:
-        Always True (non-fatal).
+        True on complete analysis; False on any configuration or engine failure.
     """
     if not resume.extracted_text:
         logger.warning(
             "Pipeline Stage 3 (project analysis) skipped — no extracted text: resume_id=%s",
             resume.id,
         )
-        return True
+        return False
 
     from app.analysis.engines.project_analysis_engine import ProjectAnalysisEngine
     from app.services.llm.exceptions import LLMConfigurationError
@@ -238,13 +238,13 @@ def _stage_project_analysis(db: Session, resume: ResumeFile) -> bool:
             "(resume_id=%s): %s",
             resume.id, exc,
         )
-        return True
+        return False
     except Exception as exc:
         logger.error(
-            "Pipeline Stage 3 (project analysis) error (non-fatal): resume_id=%s %s: %s",
+            "Pipeline Stage 3 (project analysis) FAILED: resume_id=%s %s: %s",
             resume.id, type(exc).__name__, exc,
         )
-        return True
+        return False
 
 
 def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
@@ -253,14 +253,14 @@ def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
 
     Calls InternshipAnalysisEngine.analyze() and stores the raw intelligence
     dict as _temp_internship_dict for Stage 6 (CandidateIntelligenceAggregator).
-    Best-effort / non-fatal.
+    Any failure aborts the pipeline to prevent a partial profile being marked complete.
     """
     if not resume.extracted_text:
         logger.warning(
             "Pipeline Stage 4 (internship analysis) skipped — no extracted text: resume_id=%s",
             resume.id,
         )
-        return True
+        return False
 
     from app.analysis.engines.internship_analysis_engine import InternshipAnalysisEngine
     from app.services.resume.internship_extractor import get_internship_extractor
@@ -290,13 +290,13 @@ def _stage_internship_analysis(_db: Session, resume: ResumeFile) -> bool:
             "(resume_id=%s): %s",
             resume.id, exc,
         )
-        return True
+        return False
     except Exception as exc:
         logger.error(
-            "Pipeline Stage 4 (internship analysis) error (non-fatal): resume_id=%s %s: %s",
+            "Pipeline Stage 4 (internship analysis) FAILED: resume_id=%s %s: %s",
             resume.id, type(exc).__name__, exc,
         )
-        return True
+        return False
 
 
 def _stage_certification_analysis(_db: Session, resume: ResumeFile) -> bool:
@@ -305,14 +305,14 @@ def _stage_certification_analysis(_db: Session, resume: ResumeFile) -> bool:
 
     Calls CertificationAnalysisEngine.analyze() and stores the raw intelligence
     dict as _temp_certification_dict for Stage 6 (CandidateIntelligenceAggregator).
-    Best-effort / non-fatal.
+    Any failure aborts the pipeline to prevent a partial profile being marked complete.
     """
     if not resume.extracted_text:
         logger.warning(
             "Pipeline Stage 5 (certification analysis) skipped — no extracted text: resume_id=%s",
             resume.id,
         )
-        return True
+        return False
 
     from app.analysis.engines.certification_analysis_engine import CertificationAnalysisEngine
     from app.services.resume.certification_extractor import get_certification_extractor
@@ -341,13 +341,13 @@ def _stage_certification_analysis(_db: Session, resume: ResumeFile) -> bool:
             "(resume_id=%s): %s",
             resume.id, exc,
         )
-        return True
+        return False
     except Exception as exc:
         logger.error(
-            "Pipeline Stage 5 (certification analysis) error (non-fatal): resume_id=%s %s: %s",
+            "Pipeline Stage 5 (certification analysis) FAILED: resume_id=%s %s: %s",
             resume.id, type(exc).__name__, exc,
         )
-        return True
+        return False
 
 
 def _stage_build_intelligence_profile(_db: Session, resume: ResumeFile) -> bool:
@@ -412,7 +412,7 @@ def _stage_build_intelligence_profile(_db: Session, resume: ResumeFile) -> bool:
 
         # ── Attach metadata ───────────────────────────────────────────────
         profile.metadata = ProfileMetadata(
-            total_projects_analyzed=len(project_dict.get("technologies", [])),
+            total_projects_analyzed=len(project_dict.get("project_sophistication", [])) or len(project_dict.get("projects", [])),
             total_internships_analyzed=internship_result.total_internships_count if internship_result else 0,
             total_certifications_analyzed=cert_result.total_certifications_count if cert_result else 0,
             analysis_version="3.14.0",
@@ -454,13 +454,18 @@ def _stage_readiness_engine(db: Session, resume: ResumeFile) -> bool:
             logger.warning(
                 "Pipeline Stage 7 (readiness) skipped — no intelligence profile available."
             )
-            return True
+            return False
 
         engine = ReadinessEngine()
         result = engine.analyze(
             resume_id=str(resume.id),
             profile=profile,
         )
+
+        from app.services.readiness_service import apply_readiness_result
+
+        # Reject FAILED/PARTIAL results before persisting or marking completed.
+        apply_readiness_result(profile, result)
 
         setattr(resume, "_temp_readiness_result", result)
         logger.info(
@@ -585,20 +590,32 @@ def process_resume_pipeline(resume_id: uuid.UUID) -> None:
                     stage_name,
                     resume_id,
                 )
+                db.rollback()
                 _set_status(db, resume, ProcessingStatus.failed)
                 return
 
-        # 4. All stages succeeded
-        _set_status(db, resume, ProcessingStatus.completed)
-        logger.info("Pipeline completed successfully: resume_id=%s", resume_id)
-
-        # 5. Generate Phase 5.2 Vector
+        # 4. Generate the matching vector before exposing the analysis as
+        # completed. A profile without its vector cannot produce recommendations.
         try:
             from app.matching.services.vector_persistence_service import VectorPersistenceService
-            VectorPersistenceService.sync_resume_vector(db, resume_id)
+            vector = VectorPersistenceService.sync_resume_vector(
+                db, resume_id, commit=False
+            )
+            if vector is None:
+                raise RuntimeError("Candidate vector was not created.")
             logger.info("Vector synchronized successfully: resume_id=%s", resume_id)
         except Exception as vec_exc:
             logger.error("Vector synchronization failed: resume_id=%s error=%s", resume_id, vec_exc)
+            db.rollback()
+            resume = _load_resume(db, resume_id)
+            if resume is None:
+                return
+            _set_status(db, resume, ProcessingStatus.failed)
+            return
+
+        # 5. All analysis and matching artifacts succeeded.
+        _set_status(db, resume, ProcessingStatus.completed)
+        logger.info("Pipeline completed successfully: resume_id=%s", resume_id)
 
     except Exception as exc:
         # Catch-all: no unhandled exception should escape the background task
@@ -609,6 +626,7 @@ def process_resume_pipeline(resume_id: uuid.UUID) -> None:
             exc_info=True,
         )
         try:
+            db.rollback()
             resume = _load_resume(db, resume_id)
             if resume:
                 _set_status(db, resume, ProcessingStatus.failed)

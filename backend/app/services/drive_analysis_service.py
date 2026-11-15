@@ -35,6 +35,7 @@ Cost tracking:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import uuid
@@ -57,7 +58,6 @@ from app.models.drive import Drive
 from app.models.drive_analysis import DriveAnalysis
 from app.models.drive_snapshot import DriveSnapshotModel
 from app.models.drive_source import DriveSource
-from app.services.llm.exceptions import LLMError
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -156,8 +156,8 @@ def create_analysis_record(
     """
     Synchronously create a PENDING DriveAnalysis record or return an existing one.
 
-    Idempotency: Prevents spawning a duplicate analysis if a PENDING, RUNNING,
-    or COMPLETED analysis already exists for the exact combination of:
+    Idempotency: Prevents spawning a duplicate analysis if a PENDING or RUNNING
+    analysis already exists for the exact combination of:
     drive_id + source_id + prompt_version.
     """
     drive = _get_drive_or_404(db, drive_id)
@@ -172,12 +172,13 @@ def create_analysis_record(
             DriveAnalysis.prompt_version == prompt_version,
             DriveAnalysis.status.in_([
                 DriveAnalysisStatus.pending.value,
-                DriveAnalysisStatus.completed.value,
+                DriveAnalysisStatus.running.value,
             ]),
         )
         .first()
     )
     if existing:
+        setattr(existing, "_was_created", False)
         logger.info(
             "DriveAnalysis IDEMPOTENCY HIT | returning existing analysis_id=%s status=%s",
             existing.id,
@@ -198,6 +199,7 @@ def create_analysis_record(
     )
     db.add(analysis)
     db.flush()
+    setattr(analysis, "_was_created", True)
 
     logger.info(
         "DriveAnalysis PENDING | analysis_id=%s drive_id=%s source_version=%d",
@@ -206,6 +208,71 @@ def create_analysis_record(
         source.version,
     )
     return analysis
+
+
+def _lock_analysis(db: Session, analysis_id: uuid.UUID) -> Optional[DriveAnalysis]:
+    """Serialize lifecycle transitions with cancellation, using fresh row state."""
+    return (
+        db.query(DriveAnalysis)
+        .filter(DriveAnalysis.id == analysis_id)
+        .populate_existing()
+        .with_for_update()
+        .first()
+    )
+
+
+def _record_analysis_failure(
+    db: Session, analysis_id: uuid.UUID, exc: Exception, reason: str, stage: str
+) -> Optional[DriveAnalysis]:
+    db.rollback()
+    analysis = _lock_analysis(db, analysis_id)
+    if analysis is None or analysis.status != DriveAnalysisStatus.running.value:
+        # A cancellation or another terminal transition owns this record now.
+        db.rollback()
+        return analysis
+    analysis.status = DriveAnalysisStatus.failed.value
+    analysis.failed_at = datetime.now(timezone.utc)
+    analysis.error_message = str(exc)
+    analysis.processing_metadata = {
+        **(analysis.processing_metadata or {}),
+        "failure_reason": reason,
+        "validation_stage": stage,
+    }
+    db.query(Drive).filter(
+        Drive.id == analysis.drive_id, Drive.status == DriveStatus.analyzing
+    ).update({Drive.status: DriveStatus.analysis_failed}, synchronize_session=False)
+    db.commit()
+    return analysis
+
+
+def _analysis_stopped(bind, analysis_id: uuid.UUID) -> bool:
+    # A separate short-lived session sees commits from every worker process.
+    with Session(bind=bind) as control_db:
+        status = control_db.query(DriveAnalysis.status).filter(DriveAnalysis.id == analysis_id).scalar()
+        return status != DriveAnalysisStatus.running.value
+
+
+async def _watch_analysis_cancellation(bind, analysis_id: uuid.UUID) -> None:
+    while True:
+        if await asyncio.to_thread(_analysis_stopped, bind, analysis_id):
+            return
+        await asyncio.sleep(0.25)
+
+
+async def _analyze_with_cancellation(db: Session, analysis_id: uuid.UUID, engine, **kwargs):
+    work = asyncio.create_task(engine.analyze(**kwargs))
+    watcher = asyncio.create_task(_watch_analysis_cancellation(db.get_bind(), analysis_id))
+    try:
+        done, _ = await asyncio.wait({work, watcher}, return_when=asyncio.FIRST_COMPLETED)
+        if watcher in done:
+            watcher.result()  # Propagate control-database errors instead of ignoring them.
+            raise asyncio.CancelledError()
+        return work.result()
+    finally:
+        for task in (work, watcher):
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(work, watcher, return_exceptions=True)
 
 
 async def execute_analysis_background(
@@ -219,8 +286,9 @@ async def execute_analysis_background(
 
     Transitions to RUNNING, executes LLM + Governance, and finalizes to COMPLETED or FAILED.
     """
-    analysis = db.query(DriveAnalysis).filter(DriveAnalysis.id == analysis_id).first()
+    analysis = _lock_analysis(db, analysis_id)
     if not analysis or analysis.status != DriveAnalysisStatus.pending.value:
+        db.rollback()
         logger.warning("execute_analysis_background aborted | analysis_id=%s not pending", analysis_id)
         return analysis
 
@@ -258,56 +326,45 @@ async def execute_analysis_background(
     print("# STEP 2/5 - NORMALIZING JOB DESCRIPTION")
     print("################################################################################\n\033[0m")
     
-    _engine = engine or DriveIntelligenceEngine(prompt_version=analysis.prompt_version)
-    content = _reconstruct_parsed_content(source)
-    
     t2 = time.perf_counter()
     print("\033[96m\n################################################################################")
     print("# STEP 2/5 COMPLETED ✓")
     print("################################################################################\n\033[0m")
 
     try:
-        result = await _engine.analyze(
+        _engine = engine or DriveIntelligenceEngine(prompt_version=analysis.prompt_version)
+        content = _reconstruct_parsed_content(source)
+        result = await _analyze_with_cancellation(
+            db, analysis_id, _engine,
             content=content,
             company_name=drive.company_name,
             role=drive.role,
         )
+    except asyncio.CancelledError:
+        # asyncio cancellation is initiated by the admin cancellation endpoint.
+        # That endpoint owns the durable CANCELLED state; do not overwrite it.
+        db.rollback()
+        logger.info("DriveAnalysis cancelled during execution | analysis_id=%s", analysis_id)
+        analysis = db.get(DriveAnalysis, analysis_id)
+        if analysis is None or analysis.status == DriveAnalysisStatus.cancelled.value:
+            return analysis
+        raise
     except GovernanceValidationError as exc:
-        # Expected governance validation failure
-        analysis.status = DriveAnalysisStatus.failed.value
-        analysis.failed_at = datetime.now(timezone.utc)
-        analysis.error_message = str(exc)
-        
-        # In Phase 4.3A we add specific failure tracking
-        meta = analysis.processing_metadata or {}
-        # Ensure dict format is maintained via JSONB assignment
-        new_meta = {**meta, "failure_reason": "GOVERNANCE_VALIDATION_ERROR", "validation_stage": "governance_layer"}
-        analysis.processing_metadata = new_meta
-        
-        if drive.status == DriveStatus.analyzing:
-            drive.status = DriveStatus.analysis_failed
-            
-        db.commit()
-        print(f"\033[91mDriveAnalysis FAILED | GovernanceValidationError | analysis_id={analysis_id}\nError: {exc}\033[0m")
-        logger.error("DriveAnalysis FAILED | GovernanceValidationError | analysis_id=%s", analysis_id)
+        return _record_analysis_failure(db, analysis_id, exc, "GOVERNANCE_VALIDATION_ERROR", "governance_layer")
+    except Exception as exc:
+        logger.exception("DriveAnalysis engine error | analysis_id=%s", analysis_id)
+        return _record_analysis_failure(db, analysis_id, exc, "ENGINE_ERROR", "engine_execution")
+
+    # A cancellation may have been committed by another request while the LLM
+    # call was in flight (including deployments where task cancellation cannot
+    # cross worker processes). Discard late results in that case.
+    db.rollback()
+    analysis = _lock_analysis(db, analysis_id)
+    if not analysis or analysis.status != DriveAnalysisStatus.running.value:
+        db.rollback()
+        logger.info("Discarding result for cancelled analysis_id=%s", analysis_id)
         return analysis
-    except (LLMError, Exception) as exc:
-        # Unexpected infrastructure/LLM failure
-        analysis.status = DriveAnalysisStatus.failed.value
-        analysis.failed_at = datetime.now(timezone.utc)
-        analysis.error_message = str(exc)
-        
-        meta = analysis.processing_metadata or {}
-        new_meta = {**meta, "failure_reason": "ENGINE_ERROR", "validation_stage": "engine_execution"}
-        analysis.processing_metadata = new_meta
-        
-        if drive.status == DriveStatus.analyzing:
-            drive.status = DriveStatus.analysis_failed
-            
-        db.commit()
-        print(f"\033[91mDriveAnalysis FAILED | EngineError | analysis_id={analysis_id}\nError: {exc}\033[0m")
-        logger.error("DriveAnalysis FAILED | EngineError | analysis_id=%s", analysis_id, exc_info=True)
-        return analysis
+    drive = db.query(Drive).filter(Drive.id == analysis.drive_id).first()
 
     t4 = time.perf_counter()
     # --- Build and persist snapshot ---
@@ -316,6 +373,7 @@ async def execute_analysis_background(
     print("################################################################################\n\033[0m")
     
     try:
+        # Hold the lifecycle row lock until snapshot, vector and status commit.
         token_usage = result.token_usage
         estimated_cost = _estimate_cost(
             token_usage.get("input_tokens", 0),
@@ -340,7 +398,16 @@ async def execute_analysis_background(
         )
         db.add(snapshot)
         db.flush()  # Force INSERT to avoid FK violation when updating drive_analyses
-        
+
+        # Build the matching vector in the same transaction. A drive is not
+        # ready until both its intelligence snapshot and vector are durable.
+        from app.matching.services.vector_persistence_service import VectorPersistenceService
+        vector = VectorPersistenceService.sync_drive_vector(
+            db, drive.id, commit=False
+        )
+        if vector is None:
+            raise RuntimeError("Drive vector was not created.")
+
         # --- Update analysis to COMPLETED ---
         analysis.status = DriveAnalysisStatus.completed.value
         analysis.completed_at = datetime.now(timezone.utc)
@@ -360,37 +427,12 @@ async def execute_analysis_background(
             drive.status = DriveStatus.ready
 
         db.commit()
-
-        # Phase 5.2 — Vector Generation
-        try:
-            from app.matching.services.vector_persistence_service import VectorPersistenceService
-            VectorPersistenceService.sync_drive_vector(db, drive.id)
-            logger.info("Drive Vector synchronized successfully: drive_id=%s", drive.id)
-            print(f"\033[92mDrive Vector generated successfully: {drive.id}\033[0m")
-        except Exception as vec_exc:
-            logger.error("Drive Vector synchronization failed: drive_id=%s error=%s", drive.id, vec_exc, exc_info=True)
-            print(f"\033[91mDrive Vector generation failed: {vec_exc}\033[0m")
+        logger.info("Drive Vector synchronized successfully: drive_id=%s", drive.id)
+        print(f"\033[92mDrive Vector generated successfully: {drive.id}\033[0m")
     except Exception as exc:
-        db.rollback()
         print(f"\033[91mDriveAnalysis FAILED | Database Finalization Error | analysis_id={analysis_id}\nError: {exc}\033[0m")
         logger.error("DriveAnalysis FAILED | Database Finalization Error | analysis_id=%s", analysis_id, exc_info=True)
-        
-        # Re-fetch models after rollback to update their failure states safely
-        analysis = db.query(DriveAnalysis).filter(DriveAnalysis.id == analysis_id).first()
-        drive = db.query(Drive).filter(Drive.id == analysis.drive_id).first()
-        
-        if analysis:
-            analysis.status = DriveAnalysisStatus.failed.value
-            analysis.failed_at = datetime.now(timezone.utc)
-            analysis.error_message = f"Database finalization error: {str(exc)}"
-            meta = analysis.processing_metadata or {}
-            analysis.processing_metadata = {**meta, "failure_reason": "DB_COMMIT_ERROR", "validation_stage": "finalization"}
-            
-        if drive and drive.status == DriveStatus.analyzing:
-            drive.status = DriveStatus.analysis_failed
-            
-        db.commit()
-        return analysis
+        return _record_analysis_failure(db, analysis_id, exc, "DB_COMMIT_ERROR", "finalization")
 
     t5 = time.perf_counter()
 
