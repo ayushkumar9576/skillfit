@@ -36,15 +36,15 @@ export default function RecommendedDrives() {
 
   return (
     <>
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 gap-4">
         {drives.map((drive: RecommendedDrive) => (
           <Card 
             key={drive.drive_id} 
-            className="p-5 flex flex-col justify-between gap-4 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer group"
+            className="p-5 sm:p-6 flex flex-col justify-between gap-4 hover:border-indigo-400 hover:shadow-md transition-all cursor-pointer group w-full"
             onClick={() => setSelectedDrive(drive)}
           >
             <div className="space-y-4">
-              <div className="flex justify-between items-start">
+              <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                 <div>
                   <h3 className="font-bold text-lg text-slate-900 group-hover:text-indigo-600 transition-colors">
                     {drive.drive_title}
@@ -54,7 +54,7 @@ export default function RecommendedDrives() {
                     <span className="font-medium">{drive.company_name || "Unknown Company"}</span>
                   </div>
                 </div>
-                <div className="text-right flex flex-col items-end gap-1">
+                <div className="flex sm:flex-col items-center sm:items-end justify-between sm:justify-start gap-1.5 shrink-0">
                   <div className="flex items-center gap-1.5">
                     {drive.is_eligible === false ? (
                       <span className="px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide bg-rose-100 text-rose-800 border border-rose-200">
@@ -74,13 +74,13 @@ export default function RecommendedDrives() {
                       {drive.tier.replace("_MATCH", "")}
                     </span>
                   </div>
-                  <div className="mt-1 text-xl font-bold text-slate-700">
+                  <div className="text-xl sm:text-2xl font-bold text-slate-800">
                     {Math.round(drive.score * 100)}% Match
                   </div>
                 </div>
               </div>
 
-              <div className="text-sm text-slate-600 bg-slate-50 p-3 rounded-xl border border-slate-100/80">
+              <div className="text-sm text-slate-600 bg-slate-50 p-3.5 rounded-xl border border-slate-100/80 leading-relaxed">
                 {drive.overall_narrative}
               </div>
 
@@ -102,25 +102,31 @@ export default function RecommendedDrives() {
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4 mt-2">
-                <div>
-                  <h4 className="text-xs font-semibold text-emerald-700 uppercase mb-2">Top Strengths</h4>
-                  <ul className="space-y-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2">
+                <div className="bg-emerald-50/30 p-3.5 rounded-xl border border-emerald-100/60">
+                  <h4 className="text-xs font-semibold text-emerald-800 uppercase mb-2 flex items-center gap-1.5">
+                    <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                    Top Strengths
+                  </h4>
+                  <ul className="space-y-1.5">
                     {drive.strengths.length > 0 ? drive.strengths.map((str, idx) => (
                       <li key={idx} className="flex items-start text-xs text-slate-700 font-medium">
-                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 mr-1.5 shrink-0 mt-0.5" />
-                        <span className="line-clamp-1">{str}</span>
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-emerald-500 mt-1.5 mr-2 shrink-0" />
+                        <span>{str}</span>
                       </li>
                     )) : <li className="text-xs text-slate-400">None</li>}
                   </ul>
                 </div>
-                <div>
-                  <h4 className="text-xs font-semibold text-rose-700 uppercase mb-2">Key Gaps</h4>
-                  <ul className="space-y-1">
+                <div className="bg-rose-50/30 p-3.5 rounded-xl border border-rose-100/60">
+                  <h4 className="text-xs font-semibold text-rose-800 uppercase mb-2 flex items-center gap-1.5">
+                    <XCircle className="w-3.5 h-3.5 text-rose-600" />
+                    Key Gaps
+                  </h4>
+                  <ul className="space-y-1.5">
                     {drive.gaps.length > 0 ? drive.gaps.map((gap, idx) => (
                       <li key={idx} className="flex items-start text-xs text-slate-700 font-medium">
-                        <XCircle className="w-3.5 h-3.5 text-rose-500 mr-1.5 shrink-0 mt-0.5" />
-                        <span className="line-clamp-1">{gap}</span>
+                        <span className="inline-block w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 mr-2 shrink-0" />
+                        <span>{gap}</span>
                       </li>
                     )) : <li className="text-xs text-slate-400">None</li>}
                   </ul>
@@ -132,7 +138,7 @@ export default function RecommendedDrives() {
             <div className="pt-3 border-t border-slate-100 flex items-center justify-between text-xs font-semibold text-indigo-600 group-hover:text-indigo-700">
               <span className="flex items-center gap-1.5">
                 <BarChart3 className="w-4 h-4" />
-                View Detailed Score Breakdown
+                View Dimension-by-Dimension Score Breakdown
               </span>
               <ChevronRight className="w-4 h-4 transform group-hover:translate-x-1 transition-transform" />
             </div>

@@ -3,13 +3,13 @@
 import { useQuery } from "@tanstack/react-query";
 import { getResumes, getCandidateProfile } from "@/lib/api/resume";
 import Link from "next/link";
-import { 
-  UploadCloud, 
-  Loader2, 
-  AlertCircle, 
-  FileText, 
-  Clock, 
-  CheckCircle2 
+import {
+  UploadCloud,
+  Loader2,
+  AlertCircle,
+  FileText,
+  Clock,
+  CheckCircle2
 } from "lucide-react";
 import LoadingState from "@/components/shared/LoadingState";
 import ErrorState from "@/components/shared/ErrorState";
@@ -30,11 +30,11 @@ import ProjectSophisticationPanel from "@/components/analysis/ProjectSophisticat
 
 export default function AnalysisDashboardPage() {
   // 1. Fetch student resumes
-  const { 
-    data: resumesData, 
-    isLoading: isLoadingResumes, 
+  const {
+    data: resumesData,
+    isLoading: isLoadingResumes,
     error: resumesError,
-    refetch: refetchResumes 
+    refetch: refetchResumes
   } = useQuery({
     queryKey: ["studentResumes"],
     queryFn: getResumes,
@@ -56,11 +56,11 @@ export default function AnalysisDashboardPage() {
   const isFailed = activeResume?.processing_status === "failed";
 
   // 2. Fetch candidate intelligence profile ONLY when processing is completed
-  const { 
-    data: profile, 
-    isLoading: isLoadingProfile, 
+  const {
+    data: profile,
+    isLoading: isLoadingProfile,
     error: profileError,
-    refetch: refetchProfile 
+    refetch: refetchProfile
   } = useQuery({
     queryKey: ["candidateProfile", activeResume?.id],
     queryFn: () => getCandidateProfile(activeResume!.id),
@@ -77,8 +77,8 @@ export default function AnalysisDashboardPage() {
   if (resumesError) {
     return (
       <div className="p-8 max-w-2xl mx-auto">
-        <ErrorState 
-          message="Failed to load your resume records. Please try again." 
+        <ErrorState
+          message="Failed to load your resume records. Please try again."
           retryAction={() => refetchResumes()}
         />
       </div>
@@ -96,7 +96,7 @@ export default function AnalysisDashboardPage() {
         <p className="text-slate-500 max-w-md mx-auto mb-8 text-sm">
           Upload your resume to receive AI-powered placement intelligence and skill analysis.
         </p>
-        <Link 
+        <Link
           href="/student/resume"
           className="inline-flex justify-center items-center rounded-xl bg-indigo-600 px-6 py-3 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 transition-colors"
         >
@@ -232,8 +232,8 @@ export default function AnalysisDashboardPage() {
   if (profileError) {
     return (
       <div className="p-8 max-w-2xl mx-auto">
-        <ErrorState 
-          message="Failed to load your analysis profile details. Please try refreshing." 
+        <ErrorState
+          message="Failed to load your analysis profile details. Please try refreshing."
           retryAction={() => refetchProfile()}
         />
       </div>
@@ -272,38 +272,38 @@ export default function AnalysisDashboardPage() {
 
       <div className="grid grid-cols-1 gap-8">
         <section>
-          <ReadinessSummary 
-            result={readinessResult} 
-            isLoading={isLoadingProfile} 
+          <ReadinessSummary
+            result={readinessResult}
+            isLoading={isLoadingProfile}
           />
         </section>
 
         <section>
-          <DomainIntelligenceOverview 
-            domains={profile.domains} 
-            isLoading={isLoadingProfile} 
+          <DomainIntelligenceOverview
+            domains={profile.domains}
+            isLoading={isLoadingProfile}
           />
         </section>
 
         <section>
-          <CompetencyDashboard 
-            competencies={profile.competencies} 
-            isLoading={isLoadingProfile} 
+          <CompetencyDashboard
+            competencies={profile.competencies}
+            isLoading={isLoadingProfile}
           />
         </section>
 
         <section>
-          <TechnologyMatrix 
-            technologies={profile.technologies} 
-            isLoading={isLoadingProfile} 
+          <TechnologyMatrix
+            technologies={profile.technologies}
+            isLoading={isLoadingProfile}
           />
         </section>
 
         <section>
-          <EngineeringSignalsPanel 
-            engineeringSignals={profile.engineering_signals} 
-            ownershipSignals={profile.ownership_signals} 
-            isLoading={isLoadingProfile} 
+          <EngineeringSignalsPanel
+            engineeringSignals={profile.engineering_signals}
+            ownershipSignals={profile.ownership_signals}
+            isLoading={isLoadingProfile}
           />
         </section>
 
@@ -314,35 +314,36 @@ export default function AnalysisDashboardPage() {
               averageProjectSophistication={profile.average_project_sophistication ?? 0}
               highestProjectSophistication={profile.highest_project_sophistication ?? 0}
               isLoading={isLoadingProfile}
+              profile={profile}
             />
           </section>
         )}
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          <MissingEvidencePanel 
-            findings={profile.findings} 
-            isLoading={isLoadingProfile} 
+          <MissingEvidencePanel
+            findings={profile.findings}
+            isLoading={isLoadingProfile}
           />
-          <ImprovementRoadmap 
-            recommendations={profile.recommendations} 
-            isLoading={isLoadingProfile} 
+          <ImprovementRoadmap
+            recommendations={profile.recommendations}
+            isLoading={isLoadingProfile}
           />
         </div>
 
         <section>
-          <PlacementRecommendations 
-            recommendations={profile.recommendations} 
-            isLoading={isLoadingProfile} 
+          <PlacementRecommendations
+            recommendations={profile.recommendations}
+            isLoading={isLoadingProfile}
           />
         </section>
-        
+
         {profile.technologies && profile.technologies.length > 0 && (
           <section>
             <h3 className="text-lg font-semibold text-slate-900 mb-4">Evidence Explorer (Sample)</h3>
-            <EvidenceExplorer 
-              title={profile.technologies[0].technology} 
-              evidence={profile.technologies[0].evidence || []} 
-              level={profile.technologies[0].demonstration_level} 
+            <EvidenceExplorer
+              title={profile.technologies[0].technology}
+              evidence={profile.technologies[0].evidence || []}
+              level={profile.technologies[0].demonstration_level}
             />
           </section>
         )}
