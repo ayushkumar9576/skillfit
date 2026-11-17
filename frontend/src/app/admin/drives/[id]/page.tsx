@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { fetchApi } from "@/lib/api";
+import { deleteDrive } from "@/services/drives/driveService";
 import { DriveStatusType } from "@/components/drives/DriveCard";
 import { DriveResponse, SnapshotDetailResponse } from "@/types/drives";
 import IntelligenceReview from "@/components/drives/IntelligenceReview";
@@ -23,7 +24,8 @@ import {
   Globe,
   XCircle,
   Sparkles,
-  Users
+  Users,
+  Trash2
 } from "lucide-react";
 import { format } from "date-fns";
 
@@ -157,6 +159,27 @@ export default function DriveWorkspacePage() {
     }
   };
 
+  const handleDeleteDrive = async () => {
+    if (!drive) return;
+
+    const activityWarning = drive.status === "analyzing"
+      ? " This will also stop the active analysis."
+      : "";
+    const confirmed = window.confirm(
+      `Delete the ${drive.company_name} - ${drive.role} drive?${activityWarning} This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setIsActioning(true);
+    try {
+      await deleteDrive(id);
+      router.push(drive.status === "ready" ? "/admin/drives/approvals" : "/admin/drives/pending");
+    } catch (err: unknown) {
+      alert(err instanceof Error ? `Delete failed: ${err.message}` : "Delete failed");
+      setIsActioning(false);
+    }
+  };
+
   if (isLoading) {
     return (
       <div className="flex flex-col items-center justify-center py-32">
@@ -180,6 +203,7 @@ export default function DriveWorkspacePage() {
   }
 
   const status: DriveStatusType = drive.status;
+  const canDelete = ["draft", "analyzing", "analysis_failed", "ready"].includes(status);
 
   const renderActionArea = () => {
     switch (status) {
@@ -317,8 +341,21 @@ export default function DriveWorkspacePage() {
             </div>
           </div>
         </div>
-        <div className="flex items-center px-4 py-2 bg-slate-100 text-slate-700 font-semibold rounded-lg border border-slate-200 uppercase tracking-wider text-sm">
-          Status: {status}
+        <div className="flex flex-wrap items-center gap-3">
+          {canDelete && (
+            <button
+              type="button"
+              onClick={handleDeleteDrive}
+              disabled={isActioning}
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-medium text-red-600 bg-white border border-red-200 rounded-lg hover:bg-red-50 hover:border-red-300 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {isActioning ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+              Delete drive
+            </button>
+          )}
+          <div className="flex items-center px-4 py-2 bg-slate-100 text-slate-700 font-semibold rounded-lg border border-slate-200 uppercase tracking-wider text-sm">
+            Status: {status}
+          </div>
         </div>
       </div>
 

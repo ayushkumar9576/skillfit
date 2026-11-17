@@ -6,6 +6,8 @@ from sqlalchemy import create_engine
 from sqlalchemy.pool import StaticPool
 from sqlalchemy.orm import sessionmaker, declarative_base
 
+from app.core.sql_logging import get_sql_logging_enabled
+
 load_dotenv(Path(__file__).resolve().parents[2] / ".env", override=False)
 
 DATABASE_URL = os.getenv("DATABASE_URL")
@@ -14,11 +16,11 @@ if not DATABASE_URL:
         "DATABASE_URL not set. Copy .env.example to .env and fill in your credentials."
     )
 
-ENV = os.getenv("ENV", "development")
+SQL_LOGGING_ENABLED = get_sql_logging_enabled()
 
 # PostgreSQL-specific pool args are not valid for SQLite (used in tests).
 _is_postgres = DATABASE_URL.startswith("postgresql") or DATABASE_URL.startswith("postgres")
-_engine_kwargs = dict(echo=(ENV == "development"), pool_pre_ping=True)
+_engine_kwargs = dict(echo=SQL_LOGGING_ENABLED, pool_pre_ping=True)
 if _is_postgres:
     _engine_kwargs.update(pool_size=5, max_overflow=10)
 else:

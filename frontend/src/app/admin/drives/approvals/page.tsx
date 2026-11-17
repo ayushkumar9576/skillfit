@@ -5,11 +5,14 @@ import { fetchApi } from "@/lib/api";
 import DriveCard from "@/components/drives/DriveCard";
 import { Loader2, Inbox } from "lucide-react";
 import { DriveResponse, DriveListResponse } from "@/types/drives";
+import { deleteDrive } from "@/services/drives/driveService";
 
 export default function ApprovalsPage() {
   const [drives, setDrives] = useState<DriveResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingDriveId, setDeletingDriveId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadApprovals() {
@@ -29,6 +32,24 @@ export default function ApprovalsPage() {
     loadApprovals();
   }, []);
 
+  const handleDelete = async (drive: DriveResponse) => {
+    const confirmed = window.confirm(
+      `Delete the ${drive.company_name} - ${drive.role} drive before publication? This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingDriveId(drive.id);
+    setDeleteError(null);
+    try {
+      await deleteDrive(drive.id);
+      setDrives((current) => current.filter((item) => item.id !== drive.id));
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete drive. Please try again.");
+    } finally {
+      setDeletingDriveId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -37,6 +58,12 @@ export default function ApprovalsPage() {
           <p className="text-slate-500 mt-1">Review intelligence profiles and approve drives for publication.</p>
         </div>
       </div>
+
+      {deleteError && (
+        <div className="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200">
+          {deleteError}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-20">
@@ -58,7 +85,12 @@ export default function ApprovalsPage() {
       ) : (
         <div className="flex flex-col gap-4">
           {drives.map((drive) => (
-            <DriveCard key={drive.id} drive={drive} />
+            <DriveCard
+              key={drive.id}
+              drive={drive}
+              onDelete={() => handleDelete(drive)}
+              isDeleting={deletingDriveId === drive.id}
+            />
           ))}
         </div>
       )}

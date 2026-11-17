@@ -30,12 +30,49 @@ SkillFit is an AI-powered student placement intelligence platform designed for s
 * LangGraph
 
 ## Current Phase
-Phase 1 – Project Foundation & System Setup
+Phase 5 – Intelligent Placement Matching Engine & Unified Analytics
 
 ## Current Status
-Task 1 – Completed
-Task 2 – In Progress
-Task 3 – Pending
-Task 4 – Pending
-Task 5 – Pending
-Task 6 – Pending
+- Phase 1 (Project Foundation & System Setup): Completed
+- Phase 2 (Authentication & Role-Based Access Control): Completed
+- Phase 3 (Evidence-Based CV Analysis & Intelligence Extraction): Completed
+- Phase 4 (Drive Intelligence Extraction & Snapshot Architecture): Completed
+- Phase 5 (Vectorized Matching Engine & Academic Eligibility): Completed
+
+## Backend SQL Query Logging
+
+SQLAlchemy query logging is disabled by default and is configured independently
+from FastAPI request logs and application logs. The setting is stored as
+`SQL_LOGGING=true` or `SQL_LOGGING=false` in `backend/.env`, so it persists
+across backend restarts.
+
+Run the CLI from the backend directory with the project virtual environment
+activated:
+
+```powershell
+cd backend
+python -m app.cli sql-logging status
+python -m app.cli sql-logging enable
+python -m app.cli sql-logging disable
+```
+
+Available commands:
+
+| Command | Purpose |
+| --- | --- |
+| `python -m app.cli sql-logging status` | Show whether SQL query logging is enabled or disabled in `backend/.env`. |
+| `python -m app.cli sql-logging enable` | Persist `SQL_LOGGING=true`. |
+| `python -m app.cli sql-logging disable` | Persist `SQL_LOGGING=false`. |
+
+Example debugging workflow:
+
+```powershell
+cd backend
+python -m app.cli sql-logging enable
+uvicorn app.main:app --reload
+```
+
+The SQLAlchemy engine reads this setting only when the backend starts. Restart
+the backend after enabling or disabling SQL logging. Invalid commands are
+rejected by the CLI, and values other than `true` or `false` cause a clear
+configuration error instead of silently changing logging behavior.

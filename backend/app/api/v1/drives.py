@@ -37,7 +37,7 @@ import logging
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, UploadFile, status
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.orm import Session
 from datetime import date, datetime, timezone
 
@@ -221,6 +221,34 @@ def update_drive(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(e),
         )
+
+
+@router.delete("/{drive_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_drive(
+    drive_id: UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_roles(UserRole.admin)),
+):
+    """Delete a drive while it is pending or awaiting approval."""
+    drive = drive_service.get_drive(db, drive_id)
+    if not drive:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Drive {drive_id} not found.",
+        )
+
+    try:
+        active_analysis_ids = drive_service.delete_drive(db, drive)
+    except drive_service.DriveDeletionNotAllowedError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+
+    for analysis_id in active_analysis_ids:
+        AnalysisExecutor.cancel_analysis(analysis_id)
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 # ---------------------------------------------------------------------------

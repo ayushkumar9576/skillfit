@@ -6,11 +6,14 @@ import DriveCard, { DriveStatusType } from "@/components/drives/DriveCard";
 import { Loader2, Inbox } from "lucide-react";
 import Link from "next/link";
 import { DriveResponse, DriveListResponse } from "@/types/drives";
+import { deleteDrive } from "@/services/drives/driveService";
 
 export default function PendingAnalysisPage() {
   const [drives, setDrives] = useState<DriveResponse[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingDriveId, setDeletingDriveId] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadPendingDrives() {
@@ -41,6 +44,27 @@ export default function PendingAnalysisPage() {
     loadPendingDrives();
   }, []);
 
+  const handleDelete = async (drive: DriveResponse) => {
+    const activityWarning = drive.status === "analyzing"
+      ? " This will also stop the active analysis."
+      : "";
+    const confirmed = window.confirm(
+      `Delete the ${drive.company_name} - ${drive.role} drive?${activityWarning} This action cannot be undone.`
+    );
+    if (!confirmed) return;
+
+    setDeletingDriveId(drive.id);
+    setDeleteError(null);
+    try {
+      await deleteDrive(drive.id);
+      setDrives((current) => current.filter((item) => item.id !== drive.id));
+    } catch (err: unknown) {
+      setDeleteError(err instanceof Error ? err.message : "Failed to delete drive. Please try again.");
+    } finally {
+      setDeletingDriveId(null);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -55,6 +79,12 @@ export default function PendingAnalysisPage() {
           Create Drive
         </Link>
       </div>
+
+      {deleteError && (
+        <div className="p-4 bg-red-50 text-red-700 rounded-lg border border-red-200">
+          {deleteError}
+        </div>
+      )}
 
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-20">
@@ -76,7 +106,12 @@ export default function PendingAnalysisPage() {
       ) : (
         <div className="flex flex-col gap-4">
           {drives.map((drive) => (
-            <DriveCard key={drive.id} drive={drive} />
+            <DriveCard
+              key={drive.id}
+              drive={drive}
+              onDelete={() => handleDelete(drive)}
+              isDeleting={deletingDriveId === drive.id}
+            />
           ))}
         </div>
       )}
