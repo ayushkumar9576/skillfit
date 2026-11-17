@@ -167,51 +167,60 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
             return ProjectAnalysisResult()
 
         lines = raw_text.split("\n")
-        block = self._locate_projects_block(lines)
-        if not block:
+        blocks = self._locate_projects_blocks(lines)
+        if not blocks:
             logger.debug("No projects section located in resume text.")
             return ProjectAnalysisResult()
 
-        segments = self._segment(block)
         projects: List[ProjectEvidence] = []
-        for segment in segments:
-            project = self._build_project(segment)
-            if project is not None:
-                projects.append(project)
+        for block in blocks:
+            for segment in self._segment(block):
+                project = self._build_project(segment)
+                if project is not None:
+                    projects.append(project)
 
         logger.info("Project extraction completed: %d project(s) identified.", len(projects))
         return ProjectAnalysisResult(projects=projects, total_projects_count=len(projects))
 
     # -- block location -----------------------------------------------------
 
-    def _locate_projects_block(self, lines: List[str]) -> List[Tuple[int, str]]:
+    def _locate_projects_blocks(self, lines: List[str]) -> List[List[Tuple[int, str]]]:
         """
-        Return the projects block as ``[(line_number, raw_line), ...]`` with
-        interior blank lines preserved and header lines dropped. Line numbers
-        are 1-based (for evidence traceability).
+        Return every projects block, preserving interior blank lines and
+        1-based source line numbers. A later projects section is collected even
+        when another resume section appears between the two.
         """
-        start: Optional[int] = None
+        blocks: List[List[Tuple[int, str]]] = []
+        current_block: List[Tuple[int, str]] = []
+        in_projects = False
+
         for idx, line in enumerate(lines):
-            if match_section_header(line) == ResumeSection.PROJECTS:
-                start = idx + 1
-                break
-        if start is None:
-            return []
-
-        block: List[Tuple[int, str]] = []
-        for idx in range(start, len(lines)):
-            line = lines[idx]
             matched = match_section_header(line)
+            if matched == ResumeSection.PROJECTS:
+                if current_block:
+                    trimmed = self._trim_blank_edges(current_block)
+                    if trimmed:
+                        blocks.append(trimmed)
+                    current_block = []
+                in_projects = True
+                continue
             if matched is not None:
-                if matched == ResumeSection.PROJECTS:
-                    # A second projects sub-header ("Personal Projects" etc.):
-                    # merge its content, but drop the header line itself.
-                    continue
-                # Any other recognized section header ends the projects block.
-                break
-            block.append((idx + 1, line))
+                if current_block:
+                    trimmed = self._trim_blank_edges(current_block)
+                    if trimmed:
+                        blocks.append(trimmed)
+                    current_block = []
+                in_projects = False
+                continue
+            if in_projects:
+                current_block.append((idx + 1, line))
 
-        return self._trim_blank_edges(block)
+        if current_block:
+            trimmed = self._trim_blank_edges(current_block)
+            if trimmed:
+                blocks.append(trimmed)
+
+        return blocks
 
     @staticmethod
     def _trim_blank_edges(block: List[Tuple[int, str]]) -> List[Tuple[int, str]]:
@@ -245,10 +254,42 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
         if current:
             groups.append(current)
 
-        refined: List[List[Tuple[int, str]]] = []
+        # PDF/DOCX extraction can insert a blank paragraph between an entry's
+        # title and its bullets or metadata. Re-attach those continuation-only
+        # groups before applying title-based splitting.
+        merged_groups: List[List[Tuple[int, str]]] = []
         for group in groups:
+            if merged_groups and self._group_starts_with_continuation(group):
+                merged_groups[-1].extend(group)
+            else:
+                merged_groups.append(group)
+
+        refined: List[List[Tuple[int, str]]] = []
+        for group in merged_groups:
             refined.extend(self._split_by_titles(group))
         return refined
+
+    def _group_starts_with_continuation(
+        self, group: List[Tuple[int, str]]
+    ) -> bool:
+        if not group:
+            return False
+        text = group[0][1]
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if self._is_bullet(text) or self._is_label(text) or stripped.startswith("|"):
+            return True
+        date_stripped, date_value = self._extract_and_strip_date(stripped)
+        if date_value and not date_stripped:
+            return True
+        if (
+            not re.search(r"\s+[–—-]\s+", stripped)
+            and self._is_tech_list_line(stripped)
+        ):
+            return True
+        first = re.sub(r"[^a-zA-Z]", "", stripped.split()[0]).lower()
+        return first in _ACTION_VERB_PREFIXES or stripped[0].islower()
 
     def _split_by_titles(
         self, group: List[Tuple[int, str]]
@@ -399,12 +440,16 @@ class RuleBasedProjectExtractor(BaseProjectExtractor):
         if not segment:
             return None
 
-        # Title = first non-bullet, non-label line; else the first line.
-        title_idx = 0
+        # Title = first non-bullet, non-label line. A bullet-only segment is
+        # continuation content and must never become a standalone project.
+        title_idx: Optional[int] = None
         for i, (_lineno, text) in enumerate(segment):
             if text.strip() and not self._is_bullet(text) and not self._is_label(text):
                 title_idx = i
                 break
+
+        if title_idx is None:
+            return None
 
         title_lineno, title_raw = segment[title_idx]
         title_text, inline_tech = self._parse_title(title_raw)

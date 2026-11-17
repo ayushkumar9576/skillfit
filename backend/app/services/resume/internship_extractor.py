@@ -111,46 +111,57 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
             return InternshipAnalysisResult()
 
         internships: List[InternshipEvidence] = []
-        for block in blocks:
+        for source_kind, block in blocks:
             segments = self._segment(block)
             for segment in segments:
-                internship = self._build_internship(segment)
+                internship = self._build_internship(segment, source_kind=source_kind)
                 if internship is not None:
                     internships.append(internship)
 
         logger.info("Internship extraction completed: %d internship(s) identified.", len(internships))
         return InternshipAnalysisResult(internships=internships, total_internships_count=len(internships))
 
-    def _locate_internships_blocks(self, lines: List[str]) -> List[List[Tuple[int, str]]]:
+    def _locate_internships_blocks(
+        self, lines: List[str]
+    ) -> List[Tuple[str, List[Tuple[int, str]]]]:
         """
         Locate all blocks under INTERNSHIPS, EXPERIENCE, or TRAINING sections.
         Supports multiple distinct sections throughout the document.
         """
-        blocks: List[List[Tuple[int, str]]] = []
+        blocks: List[Tuple[str, List[Tuple[int, str]]]] = []
         current_block: List[Tuple[int, str]] = []
+        current_source = ""
         in_target_section = False
 
         for idx, line in enumerate(lines):
             matched = match_section_header(line)
             norm = normalize_header_text(line)
-            is_target_section = (
-                matched in (ResumeSection.INTERNSHIPS, ResumeSection.EXPERIENCE)
-                or norm in ("training", "trainings", "training program", "training programs")
-            )
+            if norm in ("training", "trainings", "training program", "training programs"):
+                source_kind = "training"
+            elif matched == ResumeSection.EXPERIENCE:
+                source_kind = "experience"
+            elif matched == ResumeSection.INTERNSHIPS:
+                source_kind = "internships"
+            else:
+                source_kind = ""
+
+            is_target_section = bool(source_kind)
             if is_target_section:
                 if current_block:
                     trimmed = self._trim_blank_edges(current_block)
                     if trimmed:
-                        blocks.append(trimmed)
+                        blocks.append((current_source, trimmed))
                     current_block = []
+                current_source = source_kind
                 in_target_section = True
                 continue
             elif matched is not None:
                 if current_block:
                     trimmed = self._trim_blank_edges(current_block)
                     if trimmed:
-                        blocks.append(trimmed)
+                        blocks.append((current_source, trimmed))
                     current_block = []
+                current_source = ""
                 in_target_section = False
                 continue
 
@@ -160,7 +171,7 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
         if current_block:
             trimmed = self._trim_blank_edges(current_block)
             if trimmed:
-                blocks.append(trimmed)
+                blocks.append((current_source, trimmed))
 
         return blocks
 
@@ -193,10 +204,36 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
         if current:
             groups.append(current)
 
-        refined: List[List[Tuple[int, str]]] = []
+        # Paragraph gaps introduced by PDF/DOCX extraction can appear between
+        # an internship header and its bullets. Merge continuation-only groups
+        # before looking for the next internship title.
+        merged_groups: List[List[Tuple[int, str]]] = []
         for group in groups:
+            if merged_groups and self._group_starts_with_continuation(group):
+                merged_groups[-1].extend(group)
+            else:
+                merged_groups.append(group)
+
+        refined: List[List[Tuple[int, str]]] = []
+        for group in merged_groups:
             refined.extend(self._split_by_titles(group))
         return refined
+
+    def _group_starts_with_continuation(
+        self, group: List[Tuple[int, str]]
+    ) -> bool:
+        if not group:
+            return False
+        text = group[0][1]
+        stripped = text.strip()
+        if not stripped:
+            return False
+        if self._is_bullet(text) or self._is_label(text) or stripped.startswith("|"):
+            return True
+        if self._is_standalone_metadata(stripped):
+            return True
+        first = re.sub(r"[^a-zA-Z]", "", stripped.split()[0]).lower()
+        return first in _ACTION_VERBS or stripped[0].islower()
 
     def _split_by_titles(self, group: List[Tuple[int, str]]) -> List[List[Tuple[int, str]]]:
         if not group:
@@ -212,13 +249,22 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
                 current.append((lineno, text))
                 continue
 
+            if self._is_standalone_metadata(text):
+                current.append((lineno, text))
+                continue
+
             # Check if this line is an unbulleted continuation of a previous bullet
             if current and self._is_bullet_continuation(current[-1][1], text):
                 seen_content = True
                 current.append((lineno, text))
                 continue
 
-            if seen_content and self._looks_like_title(text):
+            current_header = current[0][1] if current else ""
+            both_structured_headers = (
+                self._has_header_structure(current_header)
+                and self._has_header_structure(text)
+            )
+            if (seen_content or both_structured_headers) and self._looks_like_title(text):
                 subs.append(current)
                 current = [(lineno, text)]
                 seen_content = False
@@ -230,6 +276,19 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
 
         subs.append(current)
         return subs
+
+    def _has_header_structure(self, text: str) -> bool:
+        if "|" in text:
+            return True
+        cleaned, date_value = self._extract_and_strip_date(text)
+        return bool(date_value and cleaned)
+
+    def _is_standalone_metadata(self, text: str) -> bool:
+        stripped = text.strip()
+        if stripped.lower() in ("remote", "wfh", "hybrid"):
+            return True
+        cleaned, date_value = self._extract_and_strip_date(stripped)
+        return bool(date_value and not cleaned)
 
     def _is_bullet_continuation(self, prev_text: str, curr_text: str) -> bool:
         if self._is_bullet(curr_text) or self._is_label(curr_text):
@@ -470,7 +529,11 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
             "has_explicit_role": has_explicit_role,
         }, consumed_indices
 
-    def _build_internship(self, segment: List[Tuple[int, str]]) -> Optional[InternshipEvidence]:
+    def _build_internship(
+        self,
+        segment: List[Tuple[int, str]],
+        source_kind: str = "internships",
+    ) -> Optional[InternshipEvidence]:
         """Parse segment into an InternshipEvidence."""
         if not segment:
             return None
@@ -561,6 +624,17 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
             re.sub(r"[^a-zA-Z]", "", b.split()[0]).lower() in _ACTION_VERBS
             for b in achievements if b.split()
         )
+
+        # EXPERIENCE can contain full-time jobs, and generic TRAINING can
+        # contain courses. Only retain entries from those mixed sections when
+        # their role explicitly signals internship-style work.
+        if source_kind in ("experience", "training"):
+            marker_text = title_raw
+            if has_explicit_role:
+                marker_text = f"{marker_text} {role or ''}"
+            if not self._has_internship_marker(marker_text):
+                return None
+
         if not has_explicit_role and not has_work_bullets:
             return None
 
@@ -578,6 +652,17 @@ class RuleBasedInternshipExtractor(BaseInternshipExtractor):
             confidence=1.0,
             evidences=evidences,
         )
+
+    @staticmethod
+    def _has_internship_marker(value: str) -> bool:
+        low = value.lower()
+        if re.search(
+            r"\b(?:intern(?:ship)?|trainee|apprentice(?:ship)?|fellow|co[- ]?op)\b",
+            low,
+        ):
+            return True
+        compact = re.sub(r"[^a-z]", "", low)
+        return compact.endswith(("intern", "trainee", "apprentice", "fellow"))
 
     def _split_tech(self, value: str) -> List[str]:
         techs: List[str] = []

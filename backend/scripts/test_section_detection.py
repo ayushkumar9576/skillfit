@@ -192,6 +192,13 @@ class TestHeaderMatchingAndAliases(unittest.TestCase):
                 f"False positive detected on sentence: '{sentence}'",
             )
 
+    def test_generic_training_is_separate_from_certifications(self):
+        self.assertEqual(match_section_header("Training"), ResumeSection.OTHER)
+        self.assertEqual(
+            match_section_header("Training & Certifications"),
+            ResumeSection.CERTIFICATIONS,
+        )
+
 
 class TestRealResumeFixtures(unittest.TestCase):
     """Test full parsing flow with realistic end-to-end resume fixtures."""

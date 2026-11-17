@@ -205,10 +205,6 @@ SECTION_HEADER_MAP: Dict[str, ResumeSection] = {
     "courses": ResumeSection.CERTIFICATIONS,
     "accreditations": ResumeSection.CERTIFICATIONS,
     "credentials": ResumeSection.CERTIFICATIONS,
-    "training": ResumeSection.CERTIFICATIONS,
-    "trainings": ResumeSection.CERTIFICATIONS,
-    "training program": ResumeSection.CERTIFICATIONS,
-    "training programs": ResumeSection.CERTIFICATIONS,
     "training & certifications": ResumeSection.CERTIFICATIONS,
     "training and certifications": ResumeSection.CERTIFICATIONS,
     "trainings & certifications": ResumeSection.CERTIFICATIONS,
@@ -369,6 +365,14 @@ SECTION_HEADER_MAP: Dict[str, ResumeSection] = {
     "personal interests": ResumeSection.OTHER,
     "affiliations": ResumeSection.OTHER,
     "references": ResumeSection.OTHER,
+    # Generic training is intentionally kept separate from certifications.
+    # Internship-specific variants (for example, "summer training") are
+    # mapped above to INTERNSHIPS, while combined certification headings remain
+    # mapped to CERTIFICATIONS.
+    "training": ResumeSection.OTHER,
+    "trainings": ResumeSection.OTHER,
+    "training program": ResumeSection.OTHER,
+    "training programs": ResumeSection.OTHER,
 }
 
 

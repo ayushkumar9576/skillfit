@@ -24,3 +24,7 @@ export const publishDrive = async (id: string): Promise<DriveResponse> => {
   });
   return data;
 };
+
+export const deleteDrive = async (id: string): Promise<void> => {
+  await apiClient.delete(`${BASE_URL}/${id}`);
+};

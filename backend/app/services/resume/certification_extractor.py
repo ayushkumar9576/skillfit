@@ -57,7 +57,9 @@ PROVIDER_ALIASES = {
     "oracle": "oracle",
     "cisco": "cisco",
     "meta": "meta",
-    "facebook": "meta"
+    "facebook": "meta",
+    "infosys springboard": "infosys springboard",
+    "infosys": "infosys springboard",
 }
 
 # Tier Mapping on Normalized Names
@@ -71,8 +73,15 @@ PROVIDER_TIERS = {
     "coursera": PROVIDER_MEDIUM,
     "edureka": PROVIDER_MEDIUM,
     "linkedin learning": PROVIDER_MEDIUM,
-    "udemy": PROVIDER_LOW
+    "udemy": PROVIDER_LOW,
+    "infosys springboard": PROVIDER_MEDIUM,
 }
+
+_DESCRIPTION_PREFIXES = frozenset({
+    "achieved", "applied", "built", "completed", "created", "developed",
+    "enhanced", "gained", "implemented", "improved", "learned", "practiced",
+    "solved", "strengthened", "studied", "trained", "used", "worked",
+})
 
 
 class RuleBasedCertificationExtractor:
@@ -189,8 +198,15 @@ class RuleBasedCertificationExtractor:
             # If the line starts with a bullet, we consider it a new certification segment,
             # UNLESS it's indented much further (heuristic: wait, for now just split if we have current).
             if self._is_bullet(text) and current:
-                groups.append(current)
-                current = [(lineno, text)]
+                bullet_text = self._strip_decorations(text)
+                if (
+                    self._looks_like_description(bullet_text)
+                    and not self._has_certificate_title_keyword(bullet_text)
+                ):
+                    current.append((lineno, text))
+                else:
+                    groups.append(current)
+                    current = [(lineno, text)]
             else:
                 current.append((lineno, text))
                 
@@ -209,11 +225,15 @@ class RuleBasedCertificationExtractor:
         subs: List[List[Tuple[int, str]]] = []
         current: List[Tuple[int, str]] = [group[0]]
         
-        for lineno, text in group[1:]:
+        for index, (lineno, text) in enumerate(group[1:], start=1):
             if self._is_bullet(text):
                 current.append((lineno, text))
                 continue
             if self._looks_like_title(text):
+                next_text = group[index + 1][1] if index + 1 < len(group) else None
+                if self._looks_like_provider_metadata(current, text, next_text):
+                    current.append((lineno, text))
+                    continue
                 subs.append(current)
                 current = [(lineno, text)]
                 continue
@@ -235,12 +255,16 @@ class RuleBasedCertificationExtractor:
             
         lower = core.lower()
         
-        # 1. Exclude Date-only lines (e.g., "August 2022", "March 2021", "Jan 2024", "2020 - 2021")
-        # If it's short and contains a month/year, it's probably a date line
-        if len(core) < 30 and re.search(r"\b(20\d{2}|19\d{2})\b", lower):
+        # 1. Exclude date-only metadata, while allowing certificate titles that
+        # include a date on the same line.
+        month_pattern = (
+            r"(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
+            r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|"
+            r"nov(?:ember)?|dec(?:ember)?)"
+        )
+        if re.fullmatch(rf"{month_pattern}\s+\d{{4}}", lower):
             return False
-        months = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
-        if len(core) < 20 and any(m in lower for m in months) and re.search(r"\d", lower):
+        if re.fullmatch(r"(?:19|20)\d{2}(?:\s*[-–—/]\s*(?:19|20)\d{2})?", lower):
             return False
 
         # 2. Exclude URL lines
@@ -252,9 +276,7 @@ class RuleBasedCertificationExtractor:
         metadata_keywords = [
             "link", "credential", "verification", "verify", "validation", "id:", "credential id"
         ]
-        provider_keywords = [
-            "coursera", "edureka", "udemy", "linkedin learning", "linkedin", "aws", "amazon web services", "google", "microsoft", "oracle", "cisco", "meta"
-        ]
+        provider_keywords = tuple(PROVIDER_ALIASES)
         
         # Check if the line is primarily composed of provider or metadata keywords
         # A simple heuristic: if it contains a strong metadata keyword like "certificate link", it's metadata.
@@ -272,9 +294,15 @@ class RuleBasedCertificationExtractor:
         if lower in provider_keywords:
             return False
             
-        # Specific keywords often indicate a line is a title
-        if "certified" in lower or "certification" in lower or "certificate" in lower or "course" in lower:
+        # Specific whole-word keywords often indicate a line is a title.
+        if self._has_certificate_title_keyword(lower):
             return True
+
+        # Provider/issuer lines belong to the preceding certificate. They are
+        # metadata even when written in title case (for example,
+        # "DeepLearning.AI, Coursera" or "Infosys Springboard").
+        if has_provider and re.search(r"[,|–—]", core):
+            return False
             
         # Fallback to capitalization heuristics (short noun phrases)
         words = re.findall(r"[A-Za-z][A-Za-z0-9+#.&/]*", core)
@@ -282,6 +310,55 @@ class RuleBasedCertificationExtractor:
             return False
         capitalized = sum(1 for w in words if w[0].isupper())
         return (capitalized / len(words)) >= 0.6
+
+    @staticmethod
+    def _looks_like_description(text: str) -> bool:
+        words = text.strip().split()
+        if not words:
+            return False
+        first = re.sub(r"[^a-zA-Z]", "", words[0]).lower()
+        return first in _DESCRIPTION_PREFIXES
+
+    @staticmethod
+    def _has_certificate_title_keyword(text: str) -> bool:
+        return bool(re.search(
+            r"\b(?:certified|certification|certificate|course|specialization)\b",
+            text.lower(),
+        ))
+
+    @staticmethod
+    def _contains_date(text: str) -> bool:
+        return bool(re.search(
+            r"\b(?:19|20)\d{2}\b|"
+            r"\b(?:jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|"
+            r"jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|"
+            r"nov(?:ember)?|dec(?:ember)?)\b",
+            text,
+            re.IGNORECASE,
+        ))
+
+    def _looks_like_provider_metadata(
+        self,
+        current: List[Tuple[int, str]],
+        candidate: str,
+        next_text: Optional[str],
+    ) -> bool:
+        if not current:
+            return False
+        candidate_core = self._strip_decorations(candidate)
+        if (
+            self._has_certificate_title_keyword(candidate_core)
+            or self._contains_date(candidate_core)
+            or len(candidate_core.split()) > 5
+        ):
+            return False
+
+        current_title = self._strip_decorations(current[0][1])
+        if not self._contains_date(current_title):
+            return False
+        if next_text is None:
+            return True
+        return self._contains_date(next_text) or self._is_bullet(next_text)
 
     def _build_certification(self, segment: List[Tuple[int, str]]) -> Optional[CertificationEvidence]:
         if not segment:

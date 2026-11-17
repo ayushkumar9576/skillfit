@@ -25,6 +25,7 @@ from app.services.resume.internship_extractor import (
     RuleBasedInternshipExtractor,
     get_internship_extractor,
 )
+from app.services.resume.certification_extractor import get_certification_extractor
 from app.services.resume.project_extractor import (
     RuleBasedProjectExtractor,
     extract_projects_from_text,
@@ -213,6 +214,60 @@ University
         self.assertEqual(result.projects[0].title, "Distributed Cache Service")
         self.assertEqual(result.projects[1].title, "Inventory Tracker")
         self.assertIn("Vue.js", result.projects[1].technologies)
+
+    def test_a7_multiple_project_sections_are_all_captured(self):
+        raw_text = """
+ACADEMIC PROJECTS
+Campus Navigator | Python
+- Built a route planner.
+
+EXPERIENCE
+Software Engineer | Acme Corp
+
+PERSONAL PROJECTS
+Expense Tracker | Go
+- Built a personal finance tracker.
+"""
+        result = self.extractor.extract(raw_text)
+        self.assertEqual([p.title for p in result.projects], [
+            "Campus Navigator",
+            "Expense Tracker",
+        ])
+
+    def test_a8_blank_line_between_title_and_bullets_is_not_a_new_project(self):
+        raw_text = """
+PROJECTS
+Inventory App | React, Node.js
+
+- Built inventory tracking workflows.
+- Added barcode scanning.
+
+EDUCATION
+B.Tech
+"""
+        result = self.extractor.extract(raw_text)
+        self.assertEqual(len(result.projects), 1)
+        self.assertEqual(result.projects[0].title, "Inventory App")
+        self.assertEqual(len(result.projects[0].highlights), 2)
+
+    def test_a9_standalone_date_paragraph_keeps_project_bullets_attached(self):
+        raw_text = """
+PROJECTS
+Inventory App | React
+
+Jun 2025 - Aug 2025
+
+- Built inventory tracking workflows.
+
+EDUCATION
+B.Tech
+"""
+        result = self.extractor.extract(raw_text)
+        self.assertEqual(len(result.projects), 1)
+        self.assertEqual(result.projects[0].title, "Inventory App")
+        self.assertEqual(result.projects[0].highlights, [
+            "Built inventory tracking workflows."
+        ])
 
 
 class TestGroupBInternshipExtraction(unittest.TestCase):
@@ -406,6 +461,82 @@ Summer Intern | National Informatics Centre   May 2024 – July 2024
         self.assertNotIn("Complete Python Bootcamp", orgs)
         self.assertNotIn("AWS Certified Cloud Practitioner", orgs)
 
+    def test_b7_blank_line_between_header_and_bullets_is_not_a_new_internship(self):
+        raw_text = """
+INTERNSHIPS
+Software Intern | Acme Corp | Jun 2025 - Aug 2025
+
+- Built internal APIs.
+- Automated regression tests.
+
+EDUCATION
+B.Tech
+"""
+        result = self.extractor.extract(raw_text)
+        self.assertEqual(len(result.internships), 1)
+        self.assertEqual(result.internships[0].organization, "Acme Corp")
+        self.assertEqual(len(result.internships[0].achievements), 2)
+
+    def test_b8_full_time_experience_is_not_an_internship(self):
+        raw_text = """
+WORK EXPERIENCE
+Senior Software Engineer | Acme Corp | Jan 2023 - Present
+- Led a team of five engineers.
+- Built payment services.
+
+Backend Engineering Intern | Beta Labs | Jun 2022 - Aug 2022
+- Developed REST APIs.
+"""
+        result = self.extractor.extract(raw_text)
+        self.assertEqual(len(result.internships), 1)
+        self.assertEqual(result.internships[0].organization, "Beta Labs")
+        self.assertEqual(result.internships[0].role, "Backend Engineering Intern")
+
+    def test_b9_course_training_is_not_an_internship(self):
+        raw_text = """
+TRAINING
+DSA and Competitive Programming Jun 2026 - Aug 2026
+Summer PEP Training – Programming Pathshala
+• Strengthened programming fundamentals.
+• Solved 150+ DSA problems.
+
+CERTIFICATIONS
+Machine Learning Specialization
+"""
+        result = self.extractor.extract(raw_text)
+        self.assertEqual(len(result.internships), 0)
+
+    def test_b10_date_and_location_paragraphs_keep_bullets_attached(self):
+        raw_text = """
+INTERNSHIPS
+Software Intern | Acme Corp
+
+Jun 2025 - Aug 2025
+
+Remote
+
+- Built internal APIs.
+
+EDUCATION
+B.Tech
+"""
+        result = self.extractor.extract(raw_text)
+        self.assertEqual(len(result.internships), 1)
+        self.assertEqual(result.internships[0].duration, "Jun 2025 - Aug 2025")
+        self.assertEqual(result.internships[0].location, "Remote")
+        self.assertEqual(result.internships[0].achievements, ["Built internal APIs."])
+
+    def test_b11_back_to_back_full_time_and_intern_headers_are_split(self):
+        raw_text = """
+WORK EXPERIENCE
+Senior Software Engineer | Acme Corp | Jan 2023 - Present
+Backend Engineering Intern | Beta Labs | Jun 2022 - Aug 2022
+- Developed REST APIs.
+"""
+        result = self.extractor.extract(raw_text)
+        self.assertEqual(len(result.internships), 1)
+        self.assertEqual(result.internships[0].organization, "Beta Labs")
+
 
 class TestGroupCRegressionAndRobustness(unittest.TestCase):
     """Test Group C — Generalization, Edge Cases, and Real Resume Fixtures."""
@@ -554,6 +685,89 @@ Data Analytics Job Simulation
         self.assertNotIn("HACKATHONS", titles)
         self.assertNotIn("TRAINING", titles)
         self.assertNotIn("STUDENT AMBASSADOR", titles)
+
+
+class TestGroupDCertificationBoundaries(unittest.TestCase):
+    """Certification extraction must not absorb generic training content."""
+
+    def test_d1_training_and_certifications_are_kept_separate(self):
+        raw_text = """
+Training
+DSA and Competitive Programming Jun 2026 - Aug 2026
+Summer PEP Training – Programming Pathshala
+• Strengthened Programming Fundamentals through structured technical training.
+• Built a strong foundation in Data Structures and Algorithms.
+• Solved 150+ DSA problems through consistent technical practice.
+
+Certifications
+Machine Learning Specialization Aug 2026
+DeepLearning.AI, Coursera
+Programming Using C++ Aug 2025
+Infosys Springboard
+
+Co-Curricular Activities
+Gear-UP Season 5 - SIH Sep 2026
+Engineered an AI-based rail block planning system.
+"""
+        result = get_certification_extractor().extract(raw_text)
+
+        self.assertEqual(result.total_certifications_count, 2)
+        self.assertEqual(
+            [c.certification_name for c in result.certifications],
+            [
+                "Machine Learning Specialization Aug 2026",
+                "Programming Using C++ Aug 2025",
+            ],
+        )
+        self.assertIn(
+            "DeepLearning.AI, Coursera",
+            [e.evidence_text for e in result.certifications[0].evidences],
+        )
+        self.assertIn(
+            "Infosys Springboard",
+            [e.evidence_text for e in result.certifications[1].evidences],
+        )
+
+    def test_d2_training_only_is_not_a_certification_section(self):
+        raw_text = """
+Training
+DSA and Competitive Programming
+• Solved 150+ DSA problems.
+
+EDUCATION
+B.Tech
+"""
+        result = get_certification_extractor().extract(raw_text)
+        self.assertEqual(result.total_certifications_count, 0)
+
+    def test_d3_unknown_provider_lines_attach_to_dated_certificates(self):
+        raw_text = """
+CERTIFICATIONS
+Machine Learning Specialization Aug 2026
+NPTEL
+Programming Using C++ Aug 2025
+HackerRank
+"""
+        result = get_certification_extractor().extract(raw_text)
+        self.assertEqual(result.total_certifications_count, 2)
+        self.assertIn(
+            "NPTEL",
+            [e.evidence_text for e in result.certifications[0].evidences],
+        )
+        self.assertIn(
+            "HackerRank",
+            [e.evidence_text for e in result.certifications[1].evidences],
+        )
+
+    def test_d4_completed_credential_bullet_remains_a_certificate(self):
+        raw_text = """
+CERTIFICATIONS
+• AWS Certified Cloud Practitioner
+• Completed Machine Learning Specialization
+• Google Data Analytics Professional Certificate
+"""
+        result = get_certification_extractor().extract(raw_text)
+        self.assertEqual(result.total_certifications_count, 3)
 
 
 if __name__ == "__main__":
